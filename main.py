@@ -204,12 +204,17 @@ def cb_get_ipv4(update: Update, context: CallbackContext) -> None:
         buttons = []
         row = []
         count = 0
+        countries_with_ips = False
+        
         for country_code, (country, flag, ips) in country_ips.items():
-            row.append(InlineKeyboardButton(f"{flag} {country} ({len(ips)})", callback_data=f"country_{country_code}"))
-            count += 1
-            if count % 3 == 0:  # هر سه آیتم یک ردیف جدید
-                buttons.append(row)
-                row = []
+            # فقط کشورهایی که حداقل یک آی‌پی دارند را نمایش بده
+            if len(ips) > 0:
+                countries_with_ips = True
+                row.append(InlineKeyboardButton(f"{flag} {country} ({len(ips)})", callback_data=f"country_{country_code}"))
+                count += 1
+                if count % 3 == 0:  # هر سه آیتم یک ردیف جدید
+                    buttons.append(row)
+                    row = []
 
         # اضافه کردن آیتم‌های باقی‌مانده
         if row:
@@ -218,7 +223,10 @@ def cb_get_ipv4(update: Update, context: CallbackContext) -> None:
         # اضافه کردن دکمه بازگشت
         buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='back')])
 
-        send_reply(update, "🌍 انتخاب کشور:", reply_markup=InlineKeyboardMarkup(buttons))
+        if not countries_with_ips:
+            send_reply(update, "ℹ️ هیچ کشوری با آدرس IP وجود ندارد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ بازگشت", callback_data='back')]]))
+        else:
+            send_reply(update, "🌍 انتخاب کشور:", reply_markup=InlineKeyboardMarkup(buttons))
 
 def cb_country_ips(update: Update, context: CallbackContext) -> None:
     country_code = update.callback_query.data.split('_')[1]
@@ -231,12 +239,13 @@ def cb_country_ips(update: Update, context: CallbackContext) -> None:
 
     if ips:
         text = f"📡 آدرس‌های {flag} {country_name}:\n" + "\n".join(f"• `{ip}`" for ip in ips)
+        # افزودن دکمه بازگشت
+        buttons = [[InlineKeyboardButton("↩️ بازگشت به لیست کشورها", callback_data='get_ipv4')]]
+        send_reply(update, text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
     else:
-        text = f"ℹ️ هیچ آدرسی برای کشور {flag} {country_name} یافت نشد."
-
-    # افزودن دکمه بازگشت
-    buttons = [[InlineKeyboardButton("↩️ بازگشت به لیست کشورها", callback_data='get_ipv4')]]
-    send_reply(update, text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
+        # اگر آدرسی یافت نشد، به منوی اصلی برگرد
+        update.callback_query.answer("هیچ آدرسی برای این کشور یافت نشد.")
+        cb_get_ipv4(update, context)
 
 
 def cb_admin_panel(update: Update, context: CallbackContext) -> None:
@@ -245,7 +254,7 @@ def cb_admin_panel(update: Update, context: CallbackContext) -> None:
         [InlineKeyboardButton("🔍 پردازش و افزودن IP", callback_data='admin_process_ip')],
         [InlineKeyboardButton("❌ حذف IPv4", callback_data='admin_remove_ipv4'), InlineKeyboardButton("🌐 مدیریت لوکیشن‌ها", callback_data='admin_manage_locations')],
         [InlineKeyboardButton("📊 آمار", callback_data='admin_stats'), InlineKeyboardButton("👥 مدیریت کاربران", callback_data='admin_manage_users')],
-        [InlineKeyboardButton("↩️ بازگشت", callback_data='back'), InlineKeyboardButton("🔒 خاموش کردن ربات", callback_data='admin_shutdown')],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data='back'), InlineKeyboardButton("🔒 خاموش کردن ربات", callback_data='admin_shutdown'), InlineKeyboardButton("🟢 روشن کردن ربات", callback_data='admin_startup')],
     ]
     send_reply(update, "🛠️ پنل ادمین:", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -377,11 +386,6 @@ def process_ipv4_entry(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 def main() -> None:
-    # اضافه کردن IP نمونه برای عربستان اگر وجود نداشته باشد
-    saudi_ips = db.get_ips_by_country("saudi")
-    if not saudi_ips:
-        db.add_ipv4_address("Saudi Arabia", "🇸🇦", "95.218.144.22")
-
     # ادغام کلیدهای تکراری کشورها
     # ایجاد دیکشنری موقت برای ذخیره کلیدهای نرمال‌شده
     normalized_keys = {}
@@ -394,19 +398,19 @@ def main() -> None:
                 # ادغام داده‌ها
                 old_name, old_flag, old_ips = db.ipv4_data[primary_key]
                 _, _, new_ips = db.ipv4_data[country_code]
-                
+
                 # ادغام لیست آی‌پی‌ها و حذف موارد تکراری
                 merged_ips = old_ips.copy()
                 for ip in new_ips:
                     if ip not in merged_ips:
                         merged_ips.append(ip)
-                
+
                 # به‌روزرسانی داده‌ها
                 db.ipv4_data[primary_key] = (old_name, old_flag, merged_ips)
                 del db.ipv4_data[country_code]
         else:
             normalized_keys[normalized_key] = country_code
-    
+
     # ذخیره تغییرات
     db.save_database()
 
@@ -423,7 +427,7 @@ def main() -> None:
         states={ENTER_ACTIVATION: [MessageHandler(Filters.text & ~Filters.command, enter_activation)]},
         fallbacks=[CallbackQueryHandler(cb_back, pattern='^back$')],
     )
-    
+
     addcode_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_admin_add_code, pattern='^admin_add_code$')],
         states={
@@ -433,7 +437,7 @@ def main() -> None:
         },
         fallbacks=[CallbackQueryHandler(cb_back, pattern='^back$')],
     )
-    
+
     addipv4_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_admin_add_ipv4, pattern='^admin_add_ipv4$')],
         states={
@@ -461,7 +465,7 @@ def main() -> None:
         },
         fallbacks=[CallbackQueryHandler(cb_back, pattern='^back$')],
     )
-    
+
     # کانورسیشن هندلر برای غیرفعال کردن کاربر
     disable_user_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_admin_disable_user, pattern='^admin_disable_user$')],
@@ -470,7 +474,7 @@ def main() -> None:
         },
         fallbacks=[CallbackQueryHandler(cb_back, pattern='^back$')],
     )
-    
+
     # کانورسیشن هندلر برای فعال کردن کاربر
     enable_user_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_admin_enable_user, pattern='^admin_enable_user$')],
@@ -501,7 +505,8 @@ def main() -> None:
     dp.add_handler(CallbackQueryHandler(lambda u, c: None, pattern='^noop$'))
     dp.add_handler(CallbackQueryHandler(cb_user_account, pattern='^user_account$'))
     dp.add_handler(CallbackQueryHandler(cb_subscription_status, pattern='^subscription_status$'))
-    
+    dp.add_handler(CallbackQueryHandler(cb_admin_startup, pattern='^admin_startup$'))
+
     # هندلرهای مدیریت کاربران
     dp.add_handler(CallbackQueryHandler(cb_admin_manage_users, pattern='^admin_manage_users$'))
 
@@ -514,7 +519,7 @@ def main() -> None:
     dp.add_handler(CallbackQueryHandler(cb_admin_remove_ipv4, pattern='^admin_remove_ipv4$'))
     dp.add_handler(CallbackQueryHandler(cb_remove_country_ips, pattern='^remove_country_'))
     dp.add_handler(CallbackQueryHandler(cb_remove_ip, pattern='^remove_ip_'))
-    
+
     # هندلر خطاها
     dp.add_error_handler(error_handler)
 
@@ -528,7 +533,7 @@ def cb_admin_shutdown(update: Update, context: CallbackContext) -> None:
         send_reply(update, "🤖 ربات در حال بروزرسانی و بهینه شدن میباشد بعدا تلاش کنید.")
         # Shutdown code here, temporarily disable message processing
         def shutdown():
-            context.bot.updater.stop()
+            # context.bot.updater.stop()  Removed this line
             logger.info("Bot has been shutdown by admin.")
 
         if update.message:
@@ -545,9 +550,18 @@ def cb_admin_remove_ipv4(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
     buttons = []
+    has_countries_with_ips = False
+    
     for country_code, (country, flag, ips) in country_ips.items():
-        buttons.append([InlineKeyboardButton(f"{flag} {country} ({len(ips)})", callback_data=f"remove_country_{country_code}")])
+        # فقط کشورهایی که دارای آی‌پی هستند را نمایش می‌دهیم
+        if len(ips) > 0:
+            has_countries_with_ips = True
+            buttons.append([InlineKeyboardButton(f"{flag} {country} ({len(ips)})", callback_data=f"remove_country_{country_code}")])
 
+    if not has_countries_with_ips:
+        send_reply(update, "❌ هیچ کشوری با آدرس IP وجود ندارد.")
+        return ConversationHandler.END
+        
     buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='admin_panel')])
     send_reply(update, "🌍 انتخاب کشور برای حذف آدرس:", reply_markup=InlineKeyboardMarkup(buttons))
     return ENTER_NEW_CODE  # استفاده از یک حالت موجود برای ادامه مکالمه
@@ -653,6 +667,24 @@ def enable_user(update: Update, context: CallbackContext) -> int:
     except ValueError:
         send_reply(update, "❌ لطفاً یک آیدی عددی معتبر وارد کنید.")
     return ConversationHandler.END
+
+def cb_enable_user(update: Update, context: CallbackContext) -> int:
+    try:
+        user_id = int(update.message.text.strip())
+        db.enable_user(user_id)
+        send_reply(update, f"✅ کاربر با آیدی {user_id} فعال شد.")
+    except ValueError:
+        send_reply(update, "❌ لطفاً یک آیدی عددی معتبر وارد کنید.")
+    return ConversationHandler.END
+
+def cb_admin_startup(update: Update, context: CallbackContext) -> None:
+    user_id = update.effective_user.id
+    if user_id == ADMIN_ID:
+        send_reply(update, "🟢 ربات در حال راه‌اندازی است...")
+        logger.info("Bot has been started by admin.")
+        send_reply(update, "✅ ربات با موفقیت راه‌اندازی شد.")
+    else:
+        send_reply(update, "شما اجازه این کار را ندارید.")
 
 
 if __name__ == '__main__':
