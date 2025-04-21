@@ -1,3 +1,6 @@
 
 python-telegram-bot==13.7
-urllib3
+telegram==0.0.1
+python-dateutil
+pytz
+APScheduler==3.9.1
