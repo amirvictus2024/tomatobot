@@ -2155,22 +2155,66 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
 
             # دریافت پرچم کشور
             flag = "🏳️"
-            if country_code and len(country_code) == 2:
-                # تنظیم دستی کد کشور برای کشورهای خاص که ممکن است از API به درستی دریافت نشوند
-                special_country_codes = {
-                    "Qatar": "QA",
-                    "UAE": "AE",
-                    "United Arab Emirates": "AE",
-                    "Saudi Arabia": "SA",
-                    "Iran": "IR",
-                    "Iraq": "IQ",
-                    "Kuwait": "KW",
-                    "Bahrain": "BH"
-                }
-                
-                if country in special_country_codes:
-                    country_code = special_country_codes[country]
-                    
+            
+            # تنظیم دستی کد کشور برای کشورهای خاص که ممکن است از API به درستی دریافت نشوند
+            special_country_codes = {
+                "Qatar": "QA",
+                "UAE": "AE",
+                "United Arab Emirates": "AE",
+                "Saudi Arabia": "SA",
+                "Iran": "IR",
+                "Iraq": "IQ",
+                "Kuwait": "KW",
+                "Bahrain": "BH",
+                "Oman": "OM",
+                "Egypt": "EG",
+                "Turkey": "TR",
+                "Russia": "RU",
+                "United States": "US",
+                "USA": "US",
+                "Germany": "DE",
+                "United Kingdom": "GB",
+                "UK": "GB",
+                "France": "FR",
+                "China": "CN",
+                "India": "IN",
+                "Japan": "JP",
+                "Canada": "CA",
+                "Pakistan": "PK"
+            }
+            
+            if country in special_country_codes:
+                country_code = special_country_codes[country]
+            
+            # Map پرچم‌های آماده برای کشورهای خاص
+            special_flags = {
+                "QA": "🇶🇦",  # قطر
+                "AE": "🇦🇪",  # امارات
+                "SA": "🇸🇦",  # عربستان
+                "IR": "🇮🇷",  # ایران
+                "IQ": "🇮🇶",  # عراق
+                "KW": "🇰🇼",  # کویت
+                "BH": "🇧🇭",  # بحرین
+                "OM": "🇴🇲",  # عمان
+                "EG": "🇪🇬",  # مصر
+                "TR": "🇹🇷",  # ترکیه
+                "RU": "🇷🇺",  # روسیه
+                "US": "🇺🇸",  # آمریکا
+                "DE": "🇩🇪",  # آلمان
+                "GB": "🇬🇧",  # بریتانیا
+                "FR": "🇫🇷",  # فرانسه
+                "CN": "🇨🇳",  # چین
+                "IN": "🇮🇳",  # هند
+                "JP": "🇯🇵",  # ژاپن
+                "CA": "🇨🇦",  # کانادا
+                "PK": "🇵🇰"   # پاکستان
+            }
+            
+            # بررسی اگر کشور در لیست پرچم‌های خاص موجود است
+            if country_code in special_flags:
+                flag = special_flags[country_code]
+                logger.info(f"استفاده از پرچم آماده برای {country}: {flag}")
+            elif country_code and len(country_code) == 2:
                 # ساخت ایموجی پرچم از کد کشور
                 try:
                     # تبدیل کدهای ISO دو حرفی به ایموجی پرچم
@@ -2261,7 +2305,65 @@ def cb_add_validated_ip(update: Update, context: CallbackContext) -> None:
 
             # ساخت ایموجی پرچم از کد کشور
             flag = "🏳️"
-            if country_code and len(country_code) == 2:
+            
+            # تنظیم دستی کد کشور برای کشورهای خاص
+            special_country_codes = {
+                "Qatar": "QA",
+                "UAE": "AE",
+                "United Arab Emirates": "AE",
+                "Saudi Arabia": "SA",
+                "Iran": "IR",
+                "Iraq": "IQ",
+                "Kuwait": "KW",
+                "Bahrain": "BH",
+                "Oman": "OM",
+                "Egypt": "EG",
+                "Turkey": "TR",
+                "Russia": "RU",
+                "United States": "US",
+                "USA": "US",
+                "Germany": "DE",
+                "United Kingdom": "GB",
+                "UK": "GB",
+                "France": "FR",
+                "China": "CN",
+                "India": "IN",
+                "Japan": "JP",
+                "Canada": "CA",
+                "Pakistan": "PK"
+            }
+            
+            if country_name in special_country_codes:
+                country_code = special_country_codes[country_name]
+            
+            # Map پرچم‌های آماده برای کشورهای خاص
+            special_flags = {
+                "QA": "🇶🇦",  # قطر
+                "AE": "🇦🇪",  # امارات
+                "SA": "🇸🇦",  # عربستان
+                "IR": "🇮🇷",  # ایران
+                "IQ": "🇮🇶",  # عراق
+                "KW": "🇰🇼",  # کویت
+                "BH": "🇧🇭",  # بحرین
+                "OM": "🇴🇲",  # عمان
+                "EG": "🇪🇬",  # مصر
+                "TR": "🇹🇷",  # ترکیه
+                "RU": "🇷🇺",  # روسیه
+                "US": "🇺🇸",  # آمریکا
+                "DE": "🇩🇪",  # آلمان
+                "GB": "🇬🇧",  # بریتانیا
+                "FR": "🇫🇷",  # فرانسه
+                "CN": "🇨🇳",  # چین
+                "IN": "🇮🇳",  # هند
+                "JP": "🇯🇵",  # ژاپن
+                "CA": "🇨🇦",  # کانادا
+                "PK": "🇵🇰"   # پاکستان
+            }
+            
+            if country_code and country_code.upper() in special_flags:
+                flag = special_flags[country_code.upper()]
+                logger.info(f"استفاده از پرچم آماده برای {country_name}: {flag}")
+            elif country_code and len(country_code) == 2:
                 country_code = country_code.upper()
                 try:
                     flag_chars = []
@@ -2273,19 +2375,6 @@ def cb_add_validated_ip(update: Update, context: CallbackContext) -> None:
                         logger.info(f"تولید پرچم برای کشور: {flag} از کد {country_code}")
                 except Exception as e:
                     logger.error(f"خطا در تولید پرچم: {e}")
-                    
-                # پشتیبانی از کشورهای خاص
-                if not flag or flag == "🏳️":
-                    special_flags = {
-                        "QA": "🇶🇦",  # قطر
-                        "AE": "🇦🇪",  # امارات
-                        "SA": "🇸🇦",  # عربستان
-                        "IR": "🇮🇷",  # ایران
-                        "IQ": "🇮🇶",  # عراق
-                        "KW": "🇰🇼",  # کویت
-                        "BH": "🇧🇭"   # بحرین
-                    }
-                    flag = special_flags.get(country_code, flag)
 
             # افزودن IP به پایگاه داده
             db.add_ipv4_address(country_name, flag, ip_address)
