@@ -2,6 +2,7 @@ import os
 import logging
 import random
 import json
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import (
     Updater,
@@ -62,8 +63,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN",
                       "8093306771:AAHIt63O2nHmEfFCx1u3w4kegqxuyRY2Xv4")
 
 # Conversation states
-ENTER_ACTIVATION, ENTER_NEW_CODE, ENTER_NEW_IPV4, ENTER_COUNTRY_NAME, ENTER_COUNTRY_FLAG, CHOOSE_CODE_TYPE, ENTER_TOKEN_COUNT, ENTER_IP_FOR_VALIDATION = range(
-    8)
+ENTER_ACTIVATION, ENTER_NEW_CODE, ENTER_NEW_IPV4, ENTER_COUNTRY_NAME, ENTER_COUNTRY_FLAG, CHOOSE_CODE_TYPE, ENTER_TOKEN_COUNT, ENTER_IP_FOR_VALIDATION, ENTER_BROADCAST_MESSAGE, ENTER_CHANNEL_LINK = range(
+    10)
+
+# متغیرهای مورد نیاز برای قابلیت‌های جدید
+PENDING_IPS = {}  # ذخیره‌سازی درخواست‌های IP منتظر تایید ادمین
+REQUIRED_CHANNEL = ""  # لینک کانال اجباری برای عضویت
 
 # API URL for IP validation
 IP_VALIDATION_API = "https://api.iplocation.net/?ip="
@@ -204,6 +209,14 @@ def cb_subscription_status(update: Update, context: CallbackContext) -> None:
 
 def start(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
+    
+    # بررسی عضویت در کانال اجباری (اگر تنظیم شده باشد)
+    if REQUIRED_CHANNEL and user_id != ADMIN_ID:
+        if not check_channel_membership(user_id, context):
+            welcome_text = f"👋 سلام! برای استفاده از ربات، ابتدا باید در کانال {REQUIRED_CHANNEL} عضو شوید."
+            send_reply(update, welcome_text, reply_markup=create_join_channel_button())
+            return
+    
     welcome_text = "👋 سلام! به ربات خوش آمدید.\nبرای پشتیبانی از دکمه زیر می‌توانید استفاده کنید یا از دستور /help برای راهنمایی.\nدر هر زمان با دستور /stop می‌توانید عملیات فعلی را متوقف کنید."
     send_reply(update, welcome_text, reply_markup=main_menu_keyboard(user_id))
 
@@ -525,6 +538,14 @@ def cb_admin_panel(update: Update, context: CallbackContext) -> None:
         [
             InlineKeyboardButton("🚫 مدیریت دکمه‌ها",
                                  callback_data='admin_manage_buttons')
+        ],
+        [
+            InlineKeyboardButton("📢 ارسال پیام همگانی", 
+                                 callback_data='admin_broadcast')
+        ],
+        [
+            InlineKeyboardButton("🔔 تنظیم کانال اجباری", 
+                                 callback_data='admin_set_channel')
         ],
         [
             InlineKeyboardButton("↩️ بازگشت", callback_data='back'),
@@ -1023,6 +1044,40 @@ def main() -> None:
             CommandHandler('stop', stop_command)
         ],
     )
+    
+    # کانورسیشن هندلر برای پیام همگانی
+    broadcast_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(cb_admin_broadcast, pattern='^admin_broadcast$')
+        ],
+        states={
+            ENTER_BROADCAST_MESSAGE: [
+                MessageHandler(Filters.text & ~Filters.command,
+                               enter_broadcast_message)
+            ]
+        },
+        fallbacks=[
+            CallbackQueryHandler(cb_back, pattern='^back$'),
+            CommandHandler('stop', stop_command)
+        ],
+    )
+    
+    # کانورسیشن هندلر برای تنظیم کانال اجباری
+    set_channel_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(cb_admin_set_channel, pattern='^admin_set_channel$')
+        ],
+        states={
+            ENTER_CHANNEL_LINK: [
+                MessageHandler(Filters.text & ~Filters.command,
+                               enter_channel_link)
+            ]
+        },
+        fallbacks=[
+            CallbackQueryHandler(cb_back, pattern='^back$'),
+            CommandHandler('stop', stop_command)
+        ],
+    )
 
     # ثبت همه کانورسیشن هندلرها
     dp.add_handler(activate_conv)
@@ -1033,6 +1088,8 @@ def main() -> None:
     dp.add_handler(disable_user_conv)
     dp.add_handler(enable_user_conv)
     dp.add_handler(validate_ipv4_conv)
+    dp.add_handler(broadcast_conv)
+    dp.add_handler(set_channel_conv)
 
     # سایر هندلرها
     dp.add_handler(
@@ -1058,6 +1115,17 @@ def main() -> None:
     dp.add_handler(
         CallbackQueryHandler(cb_add_validated_ip,
                              pattern='^add_validated_ip_'))
+    
+    # هندلرهای جدید برای درخواست و تایید/رد IP
+    dp.add_handler(
+        CallbackQueryHandler(cb_request_add_ip,
+                             pattern='^request_add_ip_'))
+    dp.add_handler(
+        CallbackQueryHandler(cb_approve_ip,
+                             pattern='^approve_ip_'))
+    dp.add_handler(
+        CallbackQueryHandler(cb_reject_ip,
+                             pattern='^reject_ip_'))
 
     # هندلرهای مدیریت کاربران
     dp.add_handler(
@@ -1529,6 +1597,265 @@ def cb_enable_ipv6(update: Update, context: CallbackContext) -> None:
     update.callback_query.message.reply_text(
         "عملیات انجام شد.", reply_markup=InlineKeyboardMarkup(buttons))
 
+def cb_request_add_ip(update: Update, context: CallbackContext) -> None:
+    """ارسال درخواست افزودن IP به ادمین."""
+    try:
+        callback_data = update.callback_query.data
+        data = callback_data.split('_')
+        
+        if len(data) < 7:
+            update.callback_query.answer("خطا در فرمت داده‌ها. لطفاً دوباره تلاش کنید.")
+            return
+        
+        country_code = data[3]
+        ip_address = data[4]
+        country_name = data[5]
+        flag = data[6]
+        user_id = update.callback_query.from_user.id
+        username = update.callback_query.from_user.username or f"کاربر {user_id}"
+
+        # تولید یک شناسه منحصر به فرد با تایم استمپ برای جلوگیری از تداخل
+        import time
+        timestamp = int(time.time())
+        request_id = f"{country_code}_{ip_address}_{user_id}_{timestamp}"
+        
+        # ذخیره درخواست در لیست درخواست‌های منتظر تایید
+        PENDING_IPS[request_id] = {
+            "country_code": country_code,
+            "ip_address": ip_address,
+            "country_name": country_name,
+            "flag": flag,
+            "user_id": user_id,
+            "username": username,
+            "timestamp": timestamp
+        }
+
+        # اطلاع به کاربر
+        update.callback_query.answer("درخواست شما به ادمین ارسال شد و در انتظار تایید است.")
+        send_reply(update, "✅ درخواست افزودن IP به لیست ارسال شد و در انتظار تایید ادمین است.")
+
+        # اطلاع به ادمین
+        admin_buttons = [
+            [
+                InlineKeyboardButton("✅ تایید", 
+                                    callback_data=f'approve_ip_{request_id}'),
+                InlineKeyboardButton("❌ رد", 
+                                    callback_data=f'reject_ip_{request_id}')
+            ]
+        ]
+        
+        # ارسال پیام به ادمین با اطلاعات کامل
+        context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"📩 درخواست جدید برای افزودن IP:\n\n"
+                 f"👤 کاربر: {username}\n"
+                 f"🌐 آدرس IP: {ip_address}\n"
+                 f"🌍 کشور: {flag} {country_name}\n"
+                 f"🔑 شناسه درخواست: {request_id}\n\n"
+                 f"لطفاً این درخواست را تایید یا رد کنید:",
+            reply_markup=InlineKeyboardMarkup(admin_buttons)
+        )
+        
+        # لاگ کردن درخواست برای بررسی
+        logger.info(f"درخواست جدید IP با شناسه {request_id} ایجاد شد. IP: {ip_address}, کاربر: {user_id}")
+        
+    except Exception as e:
+        update.callback_query.answer(f"خطایی رخ داد: {str(e)[:50]}")
+        logger.error(f"خطا در درخواست افزودن IP: {e}")
+        send_reply(update, f"❌ خطا در ارسال درخواست: {str(e)[:100]}")
+
+def cb_approve_ip(update: Update, context: CallbackContext) -> None:
+    """تایید درخواست افزودن IP توسط ادمین."""
+    if update.callback_query.from_user.id != ADMIN_ID:
+        update.callback_query.answer("فقط ادمین می‌تواند این عملیات را انجام دهد.")
+        return
+    
+    try:
+        request_id = update.callback_query.data.split('_')[2]
+        if request_id not in PENDING_IPS:
+            update.callback_query.answer("درخواست یافت نشد یا قبلاً پردازش شده است.")
+            return
+        
+        # کپی کردن اطلاعات قبل از حذف
+        ip_data = PENDING_IPS[request_id].copy()
+        user_id = ip_data["user_id"]
+        ip_address = ip_data["ip_address"]
+        country_name = ip_data["country_name"]
+        flag = ip_data["flag"]
+        
+        # حذف درخواست از لیست انتظار قبل از پردازش
+        del PENDING_IPS[request_id]
+        
+        # افزودن IP به پایگاه داده
+        db.add_ipv4_address(country_name, flag, ip_address)
+        
+        # اطلاع به ادمین
+        update.callback_query.answer("IP با موفقیت تایید و اضافه شد.")
+        update.callback_query.message.edit_text(
+            f"✅ IP {ip_address} با موفقیت تایید و به لیست اضافه شد."
+        )
+        
+        # اطلاع به کاربر
+        try:
+            context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ درخواست شما برای افزودن IP {ip_address} برای کشور {flag} {country_name} توسط ادمین تایید شد و به لیست اضافه شد."
+            )
+        except Exception as e:
+            logger.error(f"خطا در ارسال پیام به کاربر: {e}")
+    except Exception as e:
+        logger.error(f"خطا در تایید IP: {e}")
+        update.callback_query.answer(f"خطایی رخ داد: {str(e)[:50]}")
+        update.callback_query.message.reply_text("خطایی در پردازش درخواست رخ داد.")
+
+def cb_admin_broadcast(update: Update, context: CallbackContext) -> int:
+    """آغاز فرآیند ارسال پیام همگانی."""
+    if update.callback_query.from_user.id != ADMIN_ID:
+        update.callback_query.answer("فقط ادمین می‌تواند پیام همگانی ارسال کند.")
+        return ConversationHandler.END
+    
+    send_reply(update, "📢 لطفاً متن پیام همگانی را وارد کنید:")
+    return ENTER_BROADCAST_MESSAGE
+
+def enter_broadcast_message(update: Update, context: CallbackContext) -> int:
+    """دریافت متن پیام همگانی و ارسال به همه کاربران."""
+    message_text = update.message.text.strip()
+    user_id = update.message.from_user.id
+    
+    if user_id != ADMIN_ID:
+        update.message.reply_text("⛔ فقط ادمین می‌تواند پیام همگانی ارسال کند.")
+        return ConversationHandler.END
+    
+    # تایید دریافت پیام
+    status_message = update.message.reply_text("🔄 در حال ارسال پیام همگانی...")
+    
+    # ارسال پیام به همه کاربران فعال
+    success_count = 0
+    fail_count = 0
+    
+    for user_id in db.active_users:
+        try:
+            context.bot.send_message(
+                chat_id=user_id,
+                text=f"📢 *پیام مهم از مدیریت*\n\n{message_text}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"خطا در ارسال پیام به کاربر {user_id}: {e}")
+            fail_count += 1
+    
+    # به‌روزرسانی پیام وضعیت
+    status_message.edit_text(
+        f"✅ پیام همگانی ارسال شد.\n\n"
+        f"📊 آمار ارسال:\n"
+        f"✅ موفق: {success_count}\n"
+        f"❌ ناموفق: {fail_count}\n"
+        f"📋 کل: {success_count + fail_count}"
+    )
+    
+    return ConversationHandler.END
+
+def cb_admin_set_channel(update: Update, context: CallbackContext) -> int:
+    """آغاز فرآیند تنظیم کانال اجباری."""
+    if update.callback_query.from_user.id != ADMIN_ID:
+        update.callback_query.answer("فقط ادمین می‌تواند کانال اجباری را تنظیم کند.")
+        return ConversationHandler.END
+    
+    send_reply(update, 
+               "📢 لطفاً لینک کانال اجباری را وارد کنید (مثال: @channel_name):\n\n"
+               "برای غیرفعال کردن عضویت اجباری، عبارت 'disable' را ارسال کنید.")
+    return ENTER_CHANNEL_LINK
+
+def enter_channel_link(update: Update, context: CallbackContext) -> int:
+    """دریافت لینک کانال اجباری و ذخیره آن."""
+    channel_link = update.message.text.strip()
+    user_id = update.message.from_user.id
+    
+    if user_id != ADMIN_ID:
+        update.message.reply_text("⛔ فقط ادمین می‌تواند کانال اجباری را تنظیم کند.")
+        return ConversationHandler.END
+    
+    global REQUIRED_CHANNEL
+    
+    if channel_link.lower() == 'disable':
+        REQUIRED_CHANNEL = ""
+        update.message.reply_text("✅ عضویت اجباری در کانال غیرفعال شد.")
+    else:
+        if not channel_link.startswith('@'):
+            channel_link = '@' + channel_link
+        
+        REQUIRED_CHANNEL = channel_link
+        update.message.reply_text(f"✅ کانال اجباری به {channel_link} تغییر یافت.")
+    
+    return ConversationHandler.END
+
+def check_channel_membership(user_id, context) -> bool:
+    """بررسی عضویت کاربر در کانال اجباری."""
+    if not REQUIRED_CHANNEL:
+        return True  # اگر کانال اجباری تنظیم نشده باشد، همه مجازند
+    
+    try:
+        user_status = context.bot.get_chat_member(
+            chat_id=REQUIRED_CHANNEL, 
+            user_id=user_id
+        )
+        # اگر کاربر عضو کانال باشد (هر نوع عضویتی به جز left یا kicked)
+        if user_status.status not in ['left', 'kicked']:
+            return True
+    except Exception as e:
+        logger.error(f"خطا در بررسی عضویت کانال: {e}")
+    
+    return False
+
+def create_join_channel_button() -> InlineKeyboardMarkup:
+    """ایجاد دکمه عضویت در کانال."""
+    buttons = [[InlineKeyboardButton("🔔 عضویت در کانال", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")]]
+    return InlineKeyboardMarkup(buttons)
+
+    # حذف درخواست از لیست انتظار
+    del PENDING_IPS[request_id]
+
+def cb_reject_ip(update: Update, context: CallbackContext) -> None:
+    """رد درخواست افزودن IP توسط ادمین."""
+    if update.callback_query.from_user.id != ADMIN_ID:
+        update.callback_query.answer("فقط ادمین می‌تواند این عملیات را انجام دهد.")
+        return
+    
+    try:
+        request_id = update.callback_query.data.split('_')[2]
+        if request_id not in PENDING_IPS:
+            update.callback_query.answer("درخواست یافت نشد یا قبلاً پردازش شده است.")
+            return
+        
+        # کپی کردن اطلاعات قبل از حذف
+        ip_data = PENDING_IPS[request_id].copy()
+        user_id = ip_data["user_id"]
+        ip_address = ip_data["ip_address"]
+        
+        # حذف درخواست از لیست انتظار قبل از انجام عملیات دیگر
+        del PENDING_IPS[request_id]
+        
+        # اطلاع به ادمین
+        update.callback_query.answer("درخواست رد شد.")
+        update.callback_query.message.edit_text(
+            f"❌ درخواست افزودن IP {ip_address} رد شد."
+        )
+        
+        # اطلاع به کاربر
+        try:
+            context.bot.send_message(
+                chat_id=user_id,
+                text=f"❌ درخواست شما برای افزودن IP {ip_address} توسط ادمین رد شد."
+            )
+        except Exception as e:
+            logger.error(f"خطا در ارسال پیام به کاربر: {e}")
+    except Exception as e:
+        logger.error(f"خطا در رد IP: {e}")
+        update.callback_query.answer(f"خطایی رخ داد: {str(e)[:50]}")
+        update.callback_query.message.reply_text("خطایی در پردازش درخواست رخ داد.")
+
+
 
 # --- توابع جدید برای مدیریت تک به تک دکمه‌های لوکیشن ---
 
@@ -1768,6 +2095,14 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
     # اطلاع رسانی شروع فرآیند
     message = update.message.reply_text(
         "🔄 در حال بررسی آدرس IP... لطفاً صبر کنید.")
+        
+    # بررسی معتبر بودن IP برای جلوگیری از خطا
+    try:
+        import ipaddress
+        ipaddress.ip_address(ip_address)
+    except ValueError:
+        message.edit_text("❌ آدرس IP وارد شده معتبر نیست. لطفاً یک آدرس IPv4 معتبر وارد کنید.")
+        return ConversationHandler.END
 
     # کم کردن توکن برای کاربران توکنی
     user_data = db.active_users.get(user_id, {})
@@ -1782,8 +2117,6 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
         db.use_tokens(user_id, 1)
 
     try:
-        # ارسال درخواست به API
-        import requests
         import time
 
         # نمایش پیام‌های مرحله‌ای
@@ -1793,8 +2126,9 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
         time.sleep(2)
         message.edit_text("🔄 در حال دریافت اطلاعات IP...")
 
-        # ارسال درخواست به API
+        # ارسال درخواست به API - استفاده از API ویژه برای اطلاعات کامل
         response = requests.get(f"{IP_VALIDATION_API}{ip_address}")
+        country_response = requests.get(f"https://api.iplocation.net/?cmd=ip-country&ip={ip_address}")
 
         if response.status_code == 200:
             time.sleep(1)
@@ -1802,26 +2136,58 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
 
             # دریافت اطلاعات
             data = response.json()
+            
+            # بررسی API ثانویه برای اطلاعات دقیق‌تر کشور
+            if country_response.status_code == 200:
+                country_data = country_response.json()
+                # به‌روزرسانی کد کشور اگر در پاسخ دوم موجود بود
+                if country_data.get('country_code'):
+                    data['country_code'] = country_data.get('country_code')
+                    logger.info(f"کد کشور از API ثانویه: {data['country_code']}")
 
             # نمایش نتیجه
             country = data.get('country_name', 'نامشخص')
-            country_code = data.get('country_code', '').lower()
+            country_code = data.get('country_code', '').upper()
             isp = data.get('isp', 'نامشخص')
+            
+            # لاگ کردن اطلاعات برای بررسی
+            logger.info(f"IP: {ip_address}, Country: {country}, Code: {country_code}")
 
             # دریافت پرچم کشور
             flag = "🏳️"
-            if country_code:
+            if country_code and len(country_code) == 2:
+                # تنظیم دستی کد کشور برای کشورهای خاص که ممکن است از API به درستی دریافت نشوند
+                special_country_codes = {
+                    "Qatar": "QA",
+                    "UAE": "AE",
+                    "United Arab Emirates": "AE",
+                    "Saudi Arabia": "SA",
+                    "Iran": "IR",
+                    "Iraq": "IQ",
+                    "Kuwait": "KW",
+                    "Bahrain": "BH"
+                }
+                
+                if country in special_country_codes:
+                    country_code = special_country_codes[country]
+                    
                 # ساخت ایموجی پرچم از کد کشور
-                country_code = country_code.lower()
-                if len(country_code) == 2:
+                try:
                     # تبدیل کدهای ISO دو حرفی به ایموجی پرچم
-                    flag = "".join(
-                        [chr(ord(c.upper()) + 127397) for c in country_code])
+                    flag_chars = []
+                    for c in country_code.upper():
+                        if 'A' <= c <= 'Z':
+                            flag_chars.append(chr(ord(c) + 127397))
+                    if len(flag_chars) == 2:
+                        flag = "".join(flag_chars)
+                        logger.info(f"تولید پرچم برای {country}: {flag} از کد {country_code}")
+                except Exception as e:
+                    logger.error(f"خطا در تولید پرچم: {e}")
 
-            # ساخت دکمه‌های نمایش اطلاعات
+            # ساخت دکمه‌های نمایش اطلاعات با پرچم بزرگتر و بهتر
             buttons = [
                 [
-                    InlineKeyboardButton(f"🌍 کشور: {flag} {country}",
+                    InlineKeyboardButton(f"{flag} کشور: {country}",
                                          callback_data='noop')
                 ],
                 [InlineKeyboardButton(f"🔌 ISP: {isp}", callback_data='noop')],
@@ -1831,14 +2197,24 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
                 ],
             ]
 
-            # اضافه کردن دکمه اضافه کردن IP به لیست در صورت معتبر بودن
+            # اضافه کردن دکمه درخواست افزودن IP به لیست در صورت معتبر بودن
             if country != 'نامشخص':
-                buttons.append([
-                    InlineKeyboardButton(
-                        "➕ افزودن این IP به لیست",
-                        callback_data=
-                        f'add_validated_ip_{country_code}_{ip_address}')
-                ])
+                # اگر کاربر ادمین باشد، مستقیما به لیست اضافه کند
+                if user_id == ADMIN_ID:
+                    buttons.append([
+                        InlineKeyboardButton(
+                            "➕ افزودن این IP به لیست",
+                            callback_data=
+                            f'add_validated_ip_{country_code}_{ip_address}')
+                    ])
+                else:
+                    # برای کاربران عادی، ارسال درخواست تایید به ادمین
+                    buttons.append([
+                        InlineKeyboardButton(
+                            "🔔 درخواست افزودن این IP به لیست",
+                            callback_data=
+                            f'request_add_ip_{country_code}_{ip_address}_{country}_{flag}')
+                    ])
 
             buttons.append([
                 InlineKeyboardButton("↩️ بازگشت به منوی اصلی",
@@ -1851,8 +2227,11 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
                 remaining_tokens = db.active_users[user_id].get('tokens', 0)
                 token_message = f"\n\n🔄 توکن‌های باقی‌مانده: {remaining_tokens}"
 
-            message.edit_text(f"✅ نتیجه اعتبارسنجی آدرس IP:{token_message}",
-                              reply_markup=InlineKeyboardMarkup(buttons))
+            # اضافه کردن پرچم بزرگ به ابتدای پیام
+            flag_header = f"{flag} " if flag != "🏳️" else ""
+            message.edit_text(
+                f"{flag_header}✅ نتیجه اعتبارسنجی آدرس IP:{token_message}",
+                reply_markup=InlineKeyboardMarkup(buttons))
 
         else:
             message.edit_text(
@@ -1883,8 +2262,30 @@ def cb_add_validated_ip(update: Update, context: CallbackContext) -> None:
             # ساخت ایموجی پرچم از کد کشور
             flag = "🏳️"
             if country_code and len(country_code) == 2:
-                flag = "".join(
-                    [chr(ord(c.upper()) + 127397) for c in country_code])
+                country_code = country_code.upper()
+                try:
+                    flag_chars = []
+                    for c in country_code:
+                        if 'A' <= c <= 'Z':
+                            flag_chars.append(chr(ord(c) + 127397))
+                    if len(flag_chars) == 2:
+                        flag = "".join(flag_chars)
+                        logger.info(f"تولید پرچم برای کشور: {flag} از کد {country_code}")
+                except Exception as e:
+                    logger.error(f"خطا در تولید پرچم: {e}")
+                    
+                # پشتیبانی از کشورهای خاص
+                if not flag or flag == "🏳️":
+                    special_flags = {
+                        "QA": "🇶🇦",  # قطر
+                        "AE": "🇦🇪",  # امارات
+                        "SA": "🇸🇦",  # عربستان
+                        "IR": "🇮🇷",  # ایران
+                        "IQ": "🇮🇶",  # عراق
+                        "KW": "🇰🇼",  # کویت
+                        "BH": "🇧🇭"   # بحرین
+                    }
+                    flag = special_flags.get(country_code, flag)
 
             # افزودن IP به پایگاه داده
             db.add_ipv4_address(country_name, flag, ip_address)
