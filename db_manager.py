@@ -125,11 +125,31 @@ class DBManager:
         self.save_database()
         return True
 
-    def grant_tokens(self, user_id: int, amount: int) -> None:
+    def grant_tokens(self, user_id: int, amount: int) -> bool:
+        """افزودن توکن به کاربر."""
         if user_id in self.active_users:
             current_tokens = self.active_users[user_id].get("tokens", 0)
             self.active_users[user_id]["tokens"] = current_tokens + amount
             self.save_database()
+            return True
+        return False
+
+    def use_tokens(self, user_id: int, amount: int = 1) -> bool:
+        """استفاده از توکن توسط کاربر."""
+        if not self.is_user_active(user_id):
+            return False
+
+        user_data = self.active_users.get(user_id, {})
+        if user_data.get('type') == 'unlimited':
+            return True
+
+        current_tokens = user_data.get('tokens', 0)
+        if current_tokens < amount:
+            return False
+
+        self.active_users[user_id]['tokens'] = current_tokens - amount
+        self.save_database()
+        return True
 
     def add_active_code(self,
                         code: str,
@@ -221,7 +241,7 @@ class DBManager:
         # برای مثال "Saudi Arabia" و "saudi arabia" باید به یک کلید تبدیل شوند
         existing_country = None
         for key in self.ipv4_data.keys():
-            if key.lower() == country_code.lower():
+            if key.lower().replace(' ', '_') == country_code:
                 existing_country = key
                 break
 
@@ -279,36 +299,120 @@ class DBManager:
         """بررسی اینکه آیا کاربر غیرفعال شده است یا خیر."""
         return user_id in self.disabled_users
 
-    def disable_location(self, country_code: str) -> bool:
+    def disable_location(self,
+                         country_code: str,
+                         ip_type: str = "ipv4") -> bool:
         """غیرفعال کردن یک لوکیشن"""
-        if country_code in self.ipv4_data:
-            self.disabled_locations[country_code] = True
+        if country_code in self.ipv4_data or ip_type == "ipv6":
+            if country_code not in self.disabled_locations:
+                self.disabled_locations[country_code] = {
+                    "ipv4": False,
+                    "ipv6": False
+                }
+            elif not isinstance(self.disabled_locations[country_code], dict):
+                # تبدیل مقادیر قدیمی به فرمت جدید
+                was_disabled = self.disabled_locations[country_code]
+                self.disabled_locations[country_code] = {
+                    "ipv4": was_disabled,
+                    "ipv6": was_disabled
+                }
+
+            self.disabled_locations[country_code][ip_type] = True
             self.save_database()
             return True
         return False
 
-    def enable_location(self, country_code: str) -> bool:
+    def enable_location(self,
+                        country_code: str,
+                        ip_type: str = "ipv4") -> bool:
         """فعال کردن یک لوکیشن"""
         if country_code in self.disabled_locations:
-            self.disabled_locations[country_code] = False
+            if not isinstance(self.disabled_locations[country_code], dict):
+                # تبدیل مقادیر قدیمی به فرمت جدید
+                was_disabled = self.disabled_locations[country_code]
+                self.disabled_locations[country_code] = {
+                    "ipv4": was_disabled,
+                    "ipv6": was_disabled
+                }
+
+            self.disabled_locations[country_code][ip_type] = False
             self.save_database()
             return True
         return False
 
-    def is_location_disabled(self, country_code: str) -> bool:
+    # متد جدید برای مدیریت IPv6
+    def add_ipv6_address(self, country_name: str, flag: str,
+                         ipv6: str) -> None:
+        """اضافه کردن آدرس IPv6 به کشور"""
+        # نرمال‌سازی نام کشور برای استفاده به عنوان کلید
+        country_code = country_name.lower().replace(' ', '_')
+
+        # بررسی وجود کشور با نام‌های مشابه
+        existing_country = None
+        for key in self.ipv4_data.keys():
+            if key.lower().replace(' ', '_') == country_code:
+                existing_country = key
+                break
+
+        if existing_country:
+            country_code = existing_country
+
+        # اگر کشور در پایگاه داده وجود ندارد، اضافه کن
+        if country_code not in self.ipv4_data:
+            self.ipv4_data[country_code] = (country_name, flag, [])
+
+        # افزودن پشتیبانی IPv6 به ساختار داده
+        # به‌زودی پیاده‌سازی خواهد شد
+
+    def is_location_disabled(self,
+                             country_code: str,
+                             ip_type: str = "ipv4") -> bool:
         """بررسی اینکه آیا یک لوکیشن غیرفعال است"""
-        return self.disabled_locations.get(country_code, False)
+        if not isinstance(self.disabled_locations, dict):
+            self.disabled_locations = {}
+
+        if country_code not in self.disabled_locations:
+            self.disabled_locations[country_code] = {
+                "ipv4": False,
+                "ipv6": False
+            }
+        elif not isinstance(self.disabled_locations[country_code], dict):
+            # تبدیل مقادیر قدیمی به فرمت جدید
+            was_disabled = self.disabled_locations[country_code]
+            self.disabled_locations[country_code] = {
+                "ipv4": was_disabled,
+                "ipv6": was_disabled
+            }
+
+        return self.disabled_locations[country_code].get(ip_type, False)
 
     def get_all_locations(self) -> Dict[str, Dict]:
         """دریافت تمام لوکیشن‌ها با وضعیت فعال/غیرفعال"""
         result = {}
+
+        # IPv4 locations
         for country_code, (name, flag, ips) in self.ipv4_data.items():
-            result[country_code] = {
-                "name": name,
-                "flag": flag,
-                "ips_count": len(ips),
-                "disabled": self.is_location_disabled(country_code)
-            }
+            if country_code not in result:
+                result[country_code] = {
+                    "name":
+                    name,
+                    "flag":
+                    flag,
+                    "ipv4_count":
+                    len(ips),
+                    "ipv6_count":
+                    0,
+                    "ipv4_disabled":
+                    self.is_location_disabled(country_code, "ipv4"),
+                    "ipv6_disabled":
+                    self.is_location_disabled(country_code, "ipv6")
+                }
+            else:
+                result[country_code]["ipv4_count"] = len(ips)
+
+        # اضافه کردن آدرس‌های IPv6 به نتیجه (پیاده‌سازی در آینده)
+        # این قسمت برای پشتیبانی از IPv6 در آینده است
+
         return result
 
     def get_stats(self) -> Dict[str, int]:
