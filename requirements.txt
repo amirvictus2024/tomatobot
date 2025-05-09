@@ -4,4 +4,3 @@ python-dateutil
 pytz
 urllib3==1.26.16
 requests
-telegram
