@@ -1,4 +1,3 @@
-
 import os
 import time
 import shutil
@@ -99,6 +98,15 @@ class BackupManager:
                     return False
                 backup_file = backups[0][1]  # Get the path from the most recent backup
             
+            # بررسی اعتبار فایل بکاپ قبل از بازیابی
+            import pickle
+            try:
+                with open(backup_file, 'rb') as test_file:
+                    pickle.load(test_file)
+            except Exception as pickle_error:
+                self.logger.error(f"فایل بکاپ معتبر نیست: {pickle_error}")
+                return False
+                
             # Restore the database
             shutil.copy2(backup_file, 'bot_database.pkl')
             self.logger.info(f"Database restored from {backup_file}")
