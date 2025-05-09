@@ -1,8 +1,12 @@
 import pickle
 from typing import Dict, Set, List, Tuple, Optional
-from collections import defaultdict
+from collections import defaultdict, deque
 import time
 
+
+import pickle
+from typing import Dict, List, Tuple, Set
+from collections import deque
 
 class DBManager:
 
@@ -15,6 +19,8 @@ class DBManager:
         }  # country_code -> (name, flag, [ips])
         self.disabled_users: Set[int] = set()  # مجموعه کاربران غیرفعال
         self.disabled_locations: Dict[str, bool] = {}  # کشورهای غیرفعال شده
+        self.wg_endpoints: list = []
+        self.last_added_ips = deque(maxlen=20)  # آخرین IPهای اضافه شده
         self.load_database()
 
     def load_database(self):
@@ -26,7 +32,9 @@ class DBManager:
                 self.ipv4_data = data.get('ipv4_data', {})
                 self.disabled_users = data.get('disabled_users', set())
                 self.disabled_locations = data.get('disabled_locations', {})
-
+                self.wg_endpoints = data.get('wg_endpoints', [])
+                self.last_added_ips = data.get('last_added_ips', deque(maxlen=20))
+                
                 # اضافه کردن فیلدهای جدید به کدهای فعالسازی موجود
                 for code in self.active_codes:
                     if 'used_count' not in self.active_codes[code]:
@@ -41,10 +49,56 @@ class DBManager:
                     if 'joined_date' not in self.active_users[user_id]:
                         self.active_users[user_id]['joined_date'] = "نامشخص"
                     if 'activation_code' not in self.active_users[user_id]:
-                        self.active_users[user_id][
-                            'activation_code'] = "نامشخص"
+                        self.active_users[user_id]['activation_code'] = "نامشخص"
+        except Exception as e:
+            print(f"خطا در بارگذاری پایگاه داده: {e}")
+
+    def save_database(self):
+        """ذخیره پایگاه داده"""
+        try:
+            with open('bot_database.pkl', 'wb') as f:
+                pickle.dump({
+                    'active_codes': self.active_codes,
+                    'active_users': self.active_users,
+                    'ipv4_data': self.ipv4_data,
+                    'disabled_users': self.disabled_users,
+                    'disabled_locations': self.disabled_locations,
+                    'wg_endpoints': self.wg_endpoints,
+                    'last_added_ips': self.last_added_ips
+                }, f)
+        except Exception as e:
+            print(f"خطا در ذخیره پایگاه داده: {e}")
+
+    def get_endpoints(self):
+        """دریافت لیست endpoint های وایرگارد"""
+        return self.wg_endpoints
+
+    def add_endpoint(self, endpoint):
+        """اضافه کردن endpoint جدید"""
+        if endpoint not in self.wg_endpoints:
+            self.wg_endpoints.append(endpoint)
+            self.save_database()
+            return True
+        return False
+
+    def remove_endpoint(self, endpoint):
+        """حذف endpoint"""
+        if endpoint in self.wg_endpoints:
+            self.wg_endpoints.remove(endpoint)
+            self.save_database()
+            return True
+        return False
+
+    def is_location_disabled(self, country_code, ip_type="ipv4"):
+        """بررسی وضعیت فعال/غیرفعال یک لوکیشن"""
+        try:
+            location_key = f"{country_code}_{ip_type}_disabled"
+            if location_key not in self.disabled_locations:
+                self.disabled_locations[location_key] = False
+            return self.disabled_locations[location_key]
         except FileNotFoundError:
             self.save_database()
+            return False
 
     def save_database(self):
         with open('bot_database.pkl', 'wb') as f:
@@ -55,7 +109,9 @@ class DBManager:
                     'ipv4_data': self.ipv4_data,
                     'disabled_users': getattr(self, 'disabled_users', set()),
                     'disabled_locations': getattr(self, 'disabled_locations',
-                                                  {})
+                                                  {}),
+                    'wg_endpoints': getattr(self, 'wg_endpoints', []),
+                    'last_added_ips': getattr(self, 'last_added_ips', deque(maxlen=20))
                 }, f)
 
     def is_user_subscribed(self, user_id: int) -> bool:
@@ -215,14 +271,29 @@ class DBManager:
 
     # Adding some initial activation codes
     def initialize_codes(self):
-        # Unlimited codes
+        # Unlimited codes (10 codes)
         self.add_active_code("UNLIMITED2024", "unlimited")
         self.add_active_code("VIP2024", "unlimited")
         self.add_active_code("PREMIUM2024", "unlimited")
+        self.add_active_code("FOREVER2024", "unlimited")
+        self.add_active_code("INFINITY2024", "unlimited")
+        self.add_active_code("UNLIMIT1234", "unlimited")
+        self.add_active_code("LIFETIME2024", "unlimited")
+        self.add_active_code("PROACCESS2024", "unlimited")
+        self.add_active_code("ELITEACCESS24", "unlimited")
+        self.add_active_code("MAXUNLIMITED24", "unlimited")
 
-        # Token-based subscription codes
+        # Token-based subscription codes (10 codes)
         self.add_active_code("TOKEN500", "token", 500)
         self.add_active_code("TOKEN1000", "token", 1000)
+        self.add_active_code("TOKEN250", "token", 250)
+        self.add_active_code("TOKEN100", "token", 100)
+        self.add_active_code("CREDIT750", "token", 750)
+        self.add_active_code("STARTER50", "token", 50)
+        self.add_active_code("BASIC200", "token", 200)
+        self.add_active_code("TRIAL25", "token", 25)
+        self.add_active_code("BONUS300", "token", 300)
+        self.add_active_code("GIFT150", "token", 150)
 
     def get_ipv4_countries(self) -> Dict[str, Tuple[str, str, List[str]]]:
         return self.ipv4_data
@@ -232,32 +303,58 @@ class DBManager:
             return self.ipv4_data[country_code][2]
         return []
 
-    def add_ipv4_address(self, country_name: str, flag: str,
-                         ipv4: str) -> None:
-        # نرمال‌سازی نام کشور برای استفاده به عنوان کلید
-        country_code = country_name.lower().replace(' ', '_')
-
-        # بررسی وجود کشور با نام‌های مشابه
-        # برای مثال "Saudi Arabia" و "saudi arabia" باید به یک کلید تبدیل شوند
-        existing_country = None
-        for key in self.ipv4_data.keys():
-            if key.lower().replace(' ', '_') == country_code:
-                existing_country = key
+    def add_ipv4_address(self, country_name: str, flag: str, ipv4: str) -> None:
+        # استاندارد‌سازی نام‌ها و کدها بر اساس قوانین خاص
+        country_name_lower = country_name.lower()
+        
+        # تشخیص خاص عربستان
+        if 'saudi' in country_name_lower or 'عربستان' in country_name_lower or 'سعودی' in country_name_lower:
+            country_code = 'SA'
+            standard_country_name = 'Saudi Arabia'
+            
+            # استاندارد کردن نام عربستان به زبان انگلیسی
+            if 'عربستان' in country_name or 'سعودی' in country_name:
+                country_name = 'Saudi Arabia'
+                
+        else:
+            # در سایر موارد، کد کشور را از نام استخراج می‌کنیم
+            country_code = country_name.lower().replace(' ', '_')
+            standard_country_name = country_name
+            
+            # بررسی وجود کشور با نام مشابه
+            existing_country = next((key for key in self.ipv4_data.keys() 
+                                   if key.lower().replace(' ', '_') == country_code 
+                                   or (len(key) <= 3 and key.lower() == country_code.lower())), None)
+            if existing_country:
+                country_code = existing_country
+                standard_country_name = self.ipv4_data[existing_country][0]  # استفاده از نام موجود
+        
+        # Standardize Saudi Arabia country codes
+        saudi_keys = ['sa', 'ksa', 'saudi', 'saudi_arabia', 'saudiarabia', 'kingdomofsaudiarabia', 'ksaudi', 'saudi arabia']
+        for key in list(self.ipv4_data.keys()):
+            if key.lower() in saudi_keys:
+                # Merge all Saudi Arabia addresses with different keys
+                if key.upper() != 'SA' and 'SA' in self.ipv4_data:
+                    name, flag_emoji, ips = self.ipv4_data['SA']
+                    _, _, saudi_ips = self.ipv4_data[key]
+                    merged_ips = list(set(ips + saudi_ips))  # ادغام بدون تکرار
+                    self.ipv4_data['SA'] = (name, flag_emoji, merged_ips)
+                    del self.ipv4_data[key]
+                elif key != 'SA':
+                    self.ipv4_data['SA'] = self.ipv4_data[key]
+                    del self.ipv4_data[key]
+                country_code = 'SA'
                 break
-
-        if existing_country:
-            country_code = existing_country
-
-        # اگر کشور در پایگاه داده وجود ندارد، اضافه کن
+                
         if country_code not in self.ipv4_data:
-            self.ipv4_data[country_code] = (country_name, flag, [])
-
-        # آدرس IP را به لیست اضافه کن اگر تکراری نیست
+            self.ipv4_data[country_code] = (standard_country_name, flag, [])
+        
         name, flag_emoji, ips = self.ipv4_data[country_code]
         if ipv4 not in ips:
-            ips_new = ips.copy()
-            ips_new.append(ipv4)
-            self.ipv4_data[country_code] = (name, flag_emoji, ips_new)
+            ips.append(ipv4)
+            self.ipv4_data[country_code] = (name, flag_emoji, ips)
+            # اضافه کردن به لیست آخرین IPهای اضافه شده
+            self.last_added_ips.appendleft(f"{flag} {standard_country_name}: {ipv4}")
             self.save_database()
 
     def remove_country(self, country_code: str) -> bool:
@@ -424,3 +521,16 @@ class DBManager:
             "تعداد کل IPv4":
             sum(len(ips) for _, _, ips in self.ipv4_data.values())
         }
+
+    def get_endpoints(self):
+        return self.wg_endpoints
+
+    def add_endpoint(self, endpoint: str):
+        if endpoint not in self.wg_endpoints:
+            self.wg_endpoints.append(endpoint)
+            self.save_database()
+
+    def remove_endpoint(self, endpoint: str):
+        if endpoint in self.wg_endpoints:
+            self.wg_endpoints.remove(endpoint)
+            self.save_database()

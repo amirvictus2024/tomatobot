@@ -4,6 +4,7 @@ import random
 import json
 import requests
 import warnings
+from collections import deque
 
 # سرکوب هشدار مربوط به CallbackQueryHandler
 warnings.filterwarnings("ignore", message="If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message.")
@@ -69,12 +70,11 @@ load_disabled_buttons()
 
 # --- CONFIGURATION ---
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7240662021"))
-BOT_TOKEN = os.getenv("BOT_TOKEN",
-                      "8093306771:AAHIt63O2nHmEfFCx1u3w4kegqxuyRY2Xv4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7563286639:AAEehT7ZpX4G2U7-3-l1QNbf_eu23j40z94")
 
 # Conversation states
-ENTER_ACTIVATION, ENTER_NEW_CODE, ENTER_NEW_IPV4, ENTER_COUNTRY_NAME, ENTER_COUNTRY_FLAG, CHOOSE_CODE_TYPE, ENTER_TOKEN_COUNT, ENTER_IP_FOR_VALIDATION, ENTER_BROADCAST_MESSAGE, ENTER_CHANNEL_LINK, ENTER_BATCH_IPS = range(
-    11)
+ENTER_ACTIVATION, ENTER_NEW_CODE, ENTER_NEW_IPV4, ENTER_COUNTRY_NAME, ENTER_COUNTRY_FLAG, CHOOSE_CODE_TYPE, ENTER_TOKEN_COUNT, ENTER_IP_FOR_VALIDATION, ENTER_BROADCAST_MESSAGE, ENTER_CHANNEL_LINK, ENTER_BATCH_IPS, ENTER_BATCH_ENDPOINTS = range(
+    12)
 
 # متغیرهای مورد نیاز برای قابلیت‌های جدید
 PENDING_IPS = {}  # ذخیره‌سازی درخواست‌های IP منتظر تایید ادمین
@@ -145,69 +145,32 @@ def user_account_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Updated main menu with subscription status display and activation button."""
     subscription_status = get_subscription_status(user_id)
-    buttons = [[
-        InlineKeyboardButton(f"🔐 {subscription_status}", callback_data='noop')
-    ]]
-
+    buttons = [[InlineKeyboardButton(f"🔐 {subscription_status}", callback_data='noop')]]
     if not db.is_user_active(user_id) and not db.is_user_subscribed(user_id):
-        buttons.append([
-            InlineKeyboardButton("🔑 فعال‌سازی اشتراک",
-                                 callback_data='activate')
-        ])
-
-    # بررسی وضعیت دکمه‌ها و ساخت دکمه‌های منو
-    ipv6_button = InlineKeyboardButton("🌐 تولید IPv6",
-                                       callback_data='generate_ipv6')
-    ipv4_button = InlineKeyboardButton("📋 لیست IPv4", callback_data='get_ipv4')
-
-    validate_button = InlineKeyboardButton("🔍 اعتبارسنجی IPv4",
-                                           callback_data='validate_ipv4')
-    wireguard_button = InlineKeyboardButton("🔒 وایرگارد اختصاصی",
-                                            callback_data='wireguard')
-
-    account_button = InlineKeyboardButton("👤 حساب کاربری",
-                                          callback_data='user_account')
-    support_button = InlineKeyboardButton("❓ پشتیبانی",
-                                          callback_data='support')
-
-    # اگر دکمه غیرفعال بود، به جای آن دکمه‌ی وضعیت نگهداری نمایش داده شود
+        buttons.append([InlineKeyboardButton("🔑 فعال‌سازی اشتراک", callback_data='activate')])
+    ipv6_button = InlineKeyboardButton("🌐 تولید IPv6", callback_data='generate_ipv6')
+    ipv4_button = InlineKeyboardButton("📋 لیست IPv4", callback_data='ipv4_menu')
+    validate_button = InlineKeyboardButton("🔍 اعتبارسنجی IPv4", callback_data='validate_ipv4')
+    wireguard_button = InlineKeyboardButton("🔒 وایرگارد اختصاصی", callback_data='wireguard')
+    account_button = InlineKeyboardButton("👤 حساب کاربری", callback_data='user_account')
+    support_button = InlineKeyboardButton("❓ پشتیبانی", callback_data='support')
+    # دکمه‌های غیرفعال
     if DISABLED_BUTTONS.get('generate_ipv6', False):
-        ipv6_button = InlineKeyboardButton("🚧 تولید IPv6 (در حال بروزرسانی)",
-                                           callback_data='disabled_button')
-
+        ipv6_button = InlineKeyboardButton("🚧 تولید IPv6 (در حال بروزرسانی)", callback_data='disabled_button')
     if DISABLED_BUTTONS.get('get_ipv4', False):
-        ipv4_button = InlineKeyboardButton("🚧 لیست IPv4 (در حال بروزرسانی)",
-                                           callback_data='disabled_button')
-
+        ipv4_button = InlineKeyboardButton("🚧 لیست IPv4 (در حال بروزرسانی)", callback_data='disabled_button')
     if DISABLED_BUTTONS.get('validate_ipv4', False):
-        validate_button = InlineKeyboardButton(
-            "🚧 اعتبارسنجی IPv4 (در حال بروزرسانی)",
-            callback_data='disabled_button')
-
+        validate_button = InlineKeyboardButton("🚧 اعتبارسنجی IPv4 (در حال بروزرسانی)", callback_data='disabled_button')
     if DISABLED_BUTTONS.get('wireguard', False):
-        wireguard_button = InlineKeyboardButton(
-            "🚧 وایرگارد (در حال بروزرسانی)", callback_data='disabled_button')
-
+        wireguard_button = InlineKeyboardButton("🚧 وایرگارد (در حال بروزرسانی)", callback_data='disabled_button')
     if DISABLED_BUTTONS.get('user_account', False):
-        account_button = InlineKeyboardButton(
-            "🚧 حساب کاربری (در حال بروزرسانی)",
-            callback_data='disabled_button')
-
+        account_button = InlineKeyboardButton("🚧 حساب کاربری (در حال بروزرسانی)", callback_data='disabled_button')
     if DISABLED_BUTTONS.get('support', False):
-        support_button = InlineKeyboardButton("🚧 پشتیبانی (در حال بروزرسانی)",
-                                              callback_data='disabled_button')
-
-    buttons.extend([[ipv6_button, ipv4_button],
-                    [validate_button, wireguard_button],
-                    [account_button, support_button]])
-
+        support_button = InlineKeyboardButton("🚧 پشتیبانی (در حال بروزرسانی)", callback_data='disabled_button')
+    buttons.extend([[ipv6_button, ipv4_button], [validate_button, wireguard_button], [account_button, support_button]])
     if user_id == ADMIN_ID:
-        buttons.append([
-            InlineKeyboardButton("🛠️ پنل ادمین", callback_data='admin_panel')
-        ])
-
+        buttons.append([InlineKeyboardButton("🛠️ پنل ادمین", callback_data='admin_panel')])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -439,77 +402,149 @@ def cb_get_ipv4(update: Update, context: CallbackContext) -> None:
     if not country_ips:
         text = "ℹ️ هیچ IPv4 ذخیره‌شده‌ای یافت نشد."
         send_reply(update, text)
+        return
+
+    # نقشه پرچم‌های خاص برای کشورهای مشکل‌دار
+    special_flags = {
+        "SA": "🇸🇦", "KSA": "🇸🇦", "SAUDI": "🇸🇦", "SAUDI ARABIA": "🇸🇦",
+        "IR": "🇮🇷", "AE": "🇦🇪", 
+        "QA": "🇶🇦", "PK": "🇵🇰", "TR": "🇹🇷", "IQ": "🇮🇶", 
+        "OM": "🇴🇲", "KW": "🇰🇼", "BH": "🇧🇭", "EG": "🇪🇬", 
+        "RU": "🇷🇺", "US": "🇺🇸", "DE": "🇩🇪", "GB": "🇬🇧", 
+        "FR": "🇫🇷", "CN": "🇨🇳", "IN": "🇮🇳", "JP": "🇯🇵", 
+        "CA": "🇨🇦", "GE": "🇬🇪"
+    }
+
+    def get_flag(country_code, flag):
+        code = country_code.upper()
+        if code in special_flags:
+            return special_flags[code]
+        if len(code) == 2 and code.isalpha():
+            # ساخت ایموجی پرچم از کد کشور
+            return chr(ord(code[0]) + 127397) + chr(ord(code[1]) + 127397)
+        return flag or "🏳️"
+
+    buttons = []
+    row = []
+    count = 0
+    countries_with_ips = False
+
+    for country_code, (country, flag, ips) in country_ips.items():
+        if len(ips) > 0 and not db.is_location_disabled(country_code, "ipv4"):
+            countries_with_ips = True
+            display_flag = get_flag(country_code, flag)
+            row.append(InlineKeyboardButton(f"{display_flag} {country} ({len(ips)})", callback_data=f"country_{country_code}"))
+            count += 1
+            if count % 3 == 0:
+                buttons.append(row)
+                row = []
+
+    if row:
+        buttons.append(row)
+
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='back')])
+
+    if not countries_with_ips:
+        send_reply(update, "ℹ️ هیچ کشوری با آدرس IP فعال وجود ندارد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ بازگشت", callback_data='back')]]))
     else:
-        # چینش کشورها در سه ستون
-        buttons = []
-        row = []
-        count = 0
-        countries_with_ips = False
-
-        for country_code, (country, flag, ips) in country_ips.items():
-            # فقط کشورهایی که حداقل یک آی‌پی دارند و غیرفعال نیستند را نمایش بده
-            if len(ips) > 0 and not db.is_location_disabled(
-                    country_code, "ipv4"):
-                countries_with_ips = True
-                row.append(
-                    InlineKeyboardButton(
-                        f"{flag} {country} ({len(ips)})",
-                        callback_data=f"country_{country_code}"))
-                count += 1
-                if count % 3 == 0:  # هر سه آیتم یک ردیف جدید
-                    buttons.append(row)
-                    row = []
-
-        # اضافه کردن آیتم‌های باقی‌مانده
-        if row:
-            buttons.append(row)
-
-        # اضافه کردن دکمه بازگشت
-        buttons.append(
-            [InlineKeyboardButton("↩️ بازگشت", callback_data='back')])
-
-        if not countries_with_ips:
-            send_reply(update,
-                       "ℹ️ هیچ کشوری با آدرس IP فعال وجود ندارد.",
-                       reply_markup=InlineKeyboardMarkup([[
-                           InlineKeyboardButton("↩️ بازگشت",
-                                                callback_data='back')
-                       ]]))
-        else:
-            send_reply(update,
-                       "🌍 انتخاب کشور:",
-                       reply_markup=InlineKeyboardMarkup(buttons))
+        send_reply(update, "🌍 انتخاب کشور:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 def cb_country_ips(update: Update, context: CallbackContext) -> None:
     try:
-        country_code = update.callback_query.data.split('_')[1]
+        if '_page_' in update.callback_query.data:
+            # مدیریت صفحه‌بندی
+            parts = update.callback_query.data.split('_page_')
+            country_code = parts[0].split('_')[-1]  # آخرین بخش قبل از _page_
+            try:
+                page = int(parts[1])
+            except ValueError:
+                # اگر نتوانستیم page را به عدد تبدیل کنیم، صفحه 0 را انتخاب می کنیم
+                page = 0
+        else:
+            # درخواست اولیه
+            country_code = update.callback_query.data.split('_')[1]
+            page = 0  # صفحه اول
+        
+        # استاندارد‌سازی کد عربستان - اضافه کردن حالت‌های بیشتر
+        if country_code.upper() in ["KSA", "SAUDI", "SAUDI ARABIA", "SAUDI_ARABIA", "KINGDOMOFSAUDIARABIA"]:
+            country_code = "SA"
+            logger.info(f"Saudi Arabia country code standardized: {country_code}")
+            
         ips = db.get_ips_by_country(country_code)
-
-        # نمایش اطلاعات کشور از پایگاه داده
         country_data = db.get_ipv4_countries().get(country_code)
         if not country_data:
             update.callback_query.answer("اطلاعات کشور یافت نشد.")
             cb_get_ipv4(update, context)
             return
-
-        country_name = country_data[0] if country_data else country_code
-        flag = country_data[1] if country_data else "🏳️"
-
-        if ips:
-            text = f"📡 آدرس‌های {flag} {country_name}:\n" + "\n".join(
-                f"• `{ip}`" for ip in ips)
-            # افزودن دکمه بازگشت
-            buttons = [[
-                InlineKeyboardButton("↩️ بازگشت به لیست کشورها",
-                                     callback_data='get_ipv4')
-            ]]
-            send_reply(update,
-                       text,
-                       parse_mode=ParseMode.MARKDOWN,
-                       reply_markup=InlineKeyboardMarkup(buttons))
+        
+        # بررسی ساختار country_data برای مطمئن شدن از وجود همه مقادیر مورد نیاز
+        if isinstance(country_data, tuple) and len(country_data) >= 2:
+            country_name = country_data[0]
+            flag = country_data[1]
         else:
-            # اگر آدرسی یافت نشد، به منوی اصلی برگرد
+            # در صورت نامعتبر بودن ساختار، مقادیر پیش‌فرض تعیین کنیم
+            country_name = country_code
+            flag = "🏳️"
+        
+        # همان منطق پرچم را اینجا هم اعمال کن
+        special_flags = {
+            "SA": "🇸🇦", "KSA": "🇸🇦", "IR": "🇮🇷", "AE": "🇦🇪", "QA": "🇶🇦", "PK": "🇵🇰", 
+            "TR": "🇹🇷", "IQ": "🇮🇶", "OM": "🇴🇲", "KW": "🇰🇼", "BH": "🇧🇭", "EG": "🇪🇬", 
+            "RU": "🇷🇺", "US": "🇺🇸", "DE": "🇩🇪", "GB": "🇬🇧", "FR": "🇫🇷", "CN": "🇨🇳", 
+            "IN": "🇮🇳", "JP": "🇯🇵", "CA": "🇨🇦", "GE": "🇬🇪"
+        }
+        
+        code = country_code.upper() if isinstance(country_code, str) and len(country_code) <= 2 else country_code
+        if code in special_flags:
+            display_flag = special_flags[code]
+        elif isinstance(code, str) and len(code) == 2 and code.isalpha():
+            display_flag = chr(ord(code[0]) + 127397) + chr(ord(code[1]) + 127397)
+        else:
+            display_flag = flag or "🏳️"
+            
+        if ips:
+            total_ips = len(ips)
+            
+            # نمایش یک آدرس در هر صفحه
+            if page >= total_ips:
+                page = 0  # بازگشت به صفحه اول اگر خارج از محدوده باشد
+            elif page < 0:
+                page = total_ips - 1  # رفتن به آخرین صفحه
+                
+            current_ip = ips[page]
+            
+            # ساخت دکمه‌های صفحه‌بندی
+            pagination_buttons = []
+            
+            if total_ips > 1:
+                prev_page = page - 1 if page > 0 else total_ips - 1
+                next_page = page + 1 if page < total_ips - 1 else 0
+                
+                pagination_buttons = [
+                    InlineKeyboardButton("◀️ قبلی", callback_data=f"country_{country_code}_page_{prev_page}"),
+                    InlineKeyboardButton(f"{page + 1}/{total_ips}", callback_data="noop"),
+                    InlineKeyboardButton("بعدی ▶️", callback_data=f"country_{country_code}_page_{next_page}")
+                ]
+            
+            # تهیه متن پیام با شماره صفحه
+            text = f"📡 آدرس {page + 1} از {total_ips} برای {display_flag} {country_name}:\n\n`{current_ip}`"
+            
+            buttons = []
+            if total_ips > 1:
+                buttons.append(pagination_buttons)
+            buttons.append([InlineKeyboardButton("↩️ بازگشت به لیست کشورها", callback_data='get_ipv4')])
+            
+            # اگر پیام قبلاً وجود دارد، آن را ویرایش کنیم، در غیر این صورت پیام جدید بفرستیم
+            if update.callback_query.message and '_page_' in update.callback_query.data:
+                update.callback_query.edit_message_text(
+                    text=text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(buttons)
+                )
+            else:
+                send_reply(update, text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
+        else:
             update.callback_query.answer("هیچ آدرسی برای این کشور یافت نشد.")
             cb_get_ipv4(update, context)
     except Exception as e:
@@ -525,59 +560,116 @@ def cb_disabled_button(update: Update, context: CallbackContext) -> None:
 
 
 def cb_admin_panel(update: Update, context: CallbackContext) -> None:
-    buttons = [
-        [
-            InlineKeyboardButton("➕ اضافه کردن IPv4",
-                                 callback_data='admin_add_ipv4'),
-            InlineKeyboardButton("➕ اضافه کردن کد فعالسازی",
-                                 callback_data='admin_add_code')
-        ],
-        [
-            InlineKeyboardButton("🔍 پردازش و افزودن IP",
-                                 callback_data='admin_process_ip')
-        ],
-        [
-            InlineKeyboardButton("📥 پردازش گروهی IP",
-                                 callback_data='admin_batch_process_ip')
-        ],
-        [
-            InlineKeyboardButton("❌ حذف IPv4",
-                                 callback_data='admin_remove_ipv4'),
-            InlineKeyboardButton("🌐 مدیریت لوکیشن‌ها",
-                                 callback_data='admin_manage_locations')
-        ],
-        [
-            InlineKeyboardButton("📊 آمار", callback_data='admin_stats'),
-            InlineKeyboardButton("👥 مدیریت کاربران",
-                                 callback_data='admin_manage_users')
-        ],
-        [
-            InlineKeyboardButton("🚫 مدیریت دکمه‌ها",
-                                 callback_data='admin_manage_buttons')
-        ],
-        [
-            InlineKeyboardButton("📢 ارسال پیام همگانی",
-                                 callback_data='admin_broadcast')
-        ],
-        [
-            InlineKeyboardButton("🔔 تنظیم کانال اجباری",
-                                 callback_data='admin_set_channel')
-        ],
-        [
-            InlineKeyboardButton("💾 مدیریت بکاپ‌ها",
-                                 callback_data='admin_manage_backups')
-        ],
-        [
-            InlineKeyboardButton("↩️ بازگشت", callback_data='back'),
-            InlineKeyboardButton("🔒 خاموش کردن ربات",
-                                 callback_data='admin_shutdown'),
-            InlineKeyboardButton("🟢 روشن کردن ربات",
-                                 callback_data='admin_startup')
-        ],
-    ]
-    send_reply(update,
-               "🛠️ پنل ادمین:",
-               reply_markup=InlineKeyboardMarkup(buttons))
+    # بررسی منوی فعلی
+    current_menu = context.user_data.get('admin_menu', 'main')
+    
+    if current_menu == 'main':
+        # منوی اصلی ادمین
+        buttons = [
+            # دسته‌بندی‌های اصلی
+            [InlineKeyboardButton("📡 مدیریت IP ها", callback_data='admin_menu_ip')],
+            [InlineKeyboardButton("🔑 مدیریت اشتراک‌ها", callback_data='admin_menu_subscription')],
+            [InlineKeyboardButton("👥 مدیریت کاربران", callback_data='admin_menu_users')],
+            [InlineKeyboardButton("🔒 مدیریت وایرگارد", callback_data='admin_menu_wireguard')],
+            [InlineKeyboardButton("⚙️ تنظیمات عمومی", callback_data='admin_menu_settings')],
+            
+            # آمار و بازگشت
+            [InlineKeyboardButton("📊 آمار", callback_data='admin_stats')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی", callback_data='back')]
+        ]
+        send_reply(update, "🛠️ پنل مدیریت ربات:", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif current_menu == 'ip':
+        # منوی مدیریت IP
+        buttons = [
+            [InlineKeyboardButton("➕ اضافه کردن IPv4", callback_data='admin_add_ipv4'), 
+             InlineKeyboardButton("🔍 پردازش و افزودن IP", callback_data='admin_process_ip')],
+            [InlineKeyboardButton("📥 پردازش گروهی IP", callback_data='admin_batch_process_ip'), 
+             InlineKeyboardButton("❌ حذف IPv4", callback_data='admin_remove_ipv4')],
+            [InlineKeyboardButton("🌐 مدیریت لوکیشن‌ها", callback_data='admin_manage_locations'), 
+             InlineKeyboardButton("📤 خروجی CSV لیست IP", callback_data='export_ips')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی ادمین", callback_data='admin_menu_main')]
+        ]
+        send_reply(update, "📡 مدیریت IP ها:", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif current_menu == 'subscription':
+        # منوی مدیریت اشتراک‌ها
+        buttons = [
+            [InlineKeyboardButton("➕ اضافه کردن کد فعالسازی", callback_data='admin_add_code')],
+            [InlineKeyboardButton("📋 مشاهده کدها", callback_data='admin_view_codes')],
+            [InlineKeyboardButton("🔍 جستجوی کد فعالسازی", callback_data='admin_search_code')],
+            [InlineKeyboardButton("📊 آمار استفاده از کدها", callback_data='admin_code_stats')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی ادمین", callback_data='admin_menu_main')]
+        ]
+        send_reply(update, "🔑 مدیریت اشتراک‌ها:", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif current_menu == 'users':
+        # منوی مدیریت کاربران
+        buttons = [
+            [InlineKeyboardButton("➕ افزودن توکن به کاربر", callback_data='admin_grant_tokens'),
+             InlineKeyboardButton("🚫 غیرفعال کردن کاربر", callback_data='admin_disable_user')],
+            [InlineKeyboardButton("✅ فعال کردن کاربر", callback_data='admin_enable_user'),
+             InlineKeyboardButton("🔍 جستجوی کاربر", callback_data='admin_search_user')],
+            [InlineKeyboardButton("📋 لیست کاربران فعال", callback_data='admin_list_active_users'),
+             InlineKeyboardButton("📋 لیست کاربران غیرفعال", callback_data='admin_list_disabled_users')],
+            [InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data='admin_broadcast')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی ادمین", callback_data='admin_menu_main')]
+        ]
+        send_reply(update, "👥 مدیریت کاربران:", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif current_menu == 'wireguard':
+        # منوی مدیریت وایرگارد
+        buttons = [
+            [InlineKeyboardButton("🌐 مدیریت Endpoint ها", callback_data='admin_manage_wg_endpoints')],
+            [InlineKeyboardButton("➕ افزودن Endpoint", callback_data='add_wg_endpoint')],
+            [InlineKeyboardButton("📥 افزودن گروهی Endpoint", callback_data='admin_batch_add_endpoints')],
+            [InlineKeyboardButton("⚙️ تنظیمات وایرگارد", callback_data='admin_wg_settings')],
+            [InlineKeyboardButton("📊 آمار استفاده از وایرگارد", callback_data='admin_wg_stats')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی ادمین", callback_data='admin_menu_main')]
+        ]
+        send_reply(update, "🔒 مدیریت وایرگارد:", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif current_menu == 'settings':
+        # منوی تنظیمات عمومی
+        buttons = [
+            [InlineKeyboardButton("🚫 مدیریت دکمه‌ها", callback_data='admin_manage_buttons'),
+             InlineKeyboardButton("🔔 تنظیم کانال اجباری", callback_data='admin_set_channel')],
+            [InlineKeyboardButton("💾 مدیریت بکاپ‌ها", callback_data='admin_manage_backups')],
+            [InlineKeyboardButton("🔒 خاموش کردن ربات", callback_data='admin_shutdown'),
+             InlineKeyboardButton("🟢 روشن کردن ربات", callback_data='admin_startup')],
+            [InlineKeyboardButton("↩️ بازگشت به منوی اصلی ادمین", callback_data='admin_menu_main')]
+        ]
+        send_reply(update, "⚙️ تنظیمات عمومی:", reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_admin_menu_main(update: Update, context: CallbackContext) -> None:
+    """بازگشت به منوی اصلی ادمین"""
+    context.user_data['admin_menu'] = 'main'
+    cb_admin_panel(update, context)
+
+def cb_admin_menu_ip(update: Update, context: CallbackContext) -> None:
+    """رفتن به منوی مدیریت IP"""
+    context.user_data['admin_menu'] = 'ip'
+    cb_admin_panel(update, context)
+
+def cb_admin_menu_subscription(update: Update, context: CallbackContext) -> None:
+    """رفتن به منوی مدیریت اشتراک‌ها"""
+    context.user_data['admin_menu'] = 'subscription'
+    cb_admin_panel(update, context)
+
+def cb_admin_menu_users(update: Update, context: CallbackContext) -> None:
+    """رفتن به منوی مدیریت کاربران"""
+    context.user_data['admin_menu'] = 'users'
+    cb_admin_panel(update, context)
+
+def cb_admin_menu_wireguard(update: Update, context: CallbackContext) -> None:
+    """رفتن به منوی مدیریت وایرگارد"""
+    context.user_data['admin_menu'] = 'wireguard'
+    cb_admin_panel(update, context)
+
+def cb_admin_menu_settings(update: Update, context: CallbackContext) -> None:
+    """رفتن به منوی تنظیمات عمومی"""
+    context.user_data['admin_menu'] = 'settings'
+    cb_admin_panel(update, context)
 
 
 def cb_admin_add_code(update: Update, context: CallbackContext) -> int:
@@ -670,6 +762,307 @@ def cb_back(update: Update, context: CallbackContext) -> None:
     start(update, context)
 
 
+def cb_ipv4_menu(update: Update, context: CallbackContext) -> None:
+    """زیر منوی مدیریت IPv4"""
+    buttons = [
+        [InlineKeyboardButton("📋 مشاهده لیست کشورها", callback_data='get_ipv4')],
+        [InlineKeyboardButton("🔍 جستجوی سریع کشور/IP", callback_data='quick_search_ipv4')],
+        [InlineKeyboardButton("🌎 دسته‌بندی بر اساس قاره", callback_data='continent_list_ipv4')],
+        [InlineKeyboardButton("🆕 آخرین IPهای افزوده شده", callback_data='latest_ips_ipv4')],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data='back')]
+    ]
+    send_reply(update, "لطفاً یک گزینه انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+def cb_quick_search_ipv4(update: Update, context: CallbackContext) -> None:
+    """جستجوی سریع IPv4"""
+    send_reply(update, "🔍 لطفاً نام کشور یا بخشی از IP را وارد کنید:")
+    context.user_data['search_mode_ipv4'] = True
+    return ConversationHandler.END
+
+
+def handle_search_input_ipv4(update: Update, context: CallbackContext) -> None:
+    """پردازش متن جستجو شده توسط کاربر"""
+    if context.user_data.get('search_mode_ipv4'):
+        query = update.message.text.strip().lower()
+        results = []
+        
+        # نقشه کشورهای فارسی به انگلیسی برای جستجوی فارسی
+        persian_to_english = {
+            "ایران": "iran", 
+            "عربستان": "saudi arabia", "عربستان سعودی": "saudi arabia", "سعودی": "saudi arabia",
+            "آمریکا": "united states", "امریکا": "united states", 
+            "انگلیس": "united kingdom", "انگلستان": "united kingdom", "آلمان": "germany", "روسیه": "russia",
+            "فرانسه": "france", "چین": "china", "هند": "india", "ژاپن": "japan", "کانادا": "canada",
+            "پاکستان": "pakistan", "قطر": "qatar", "امارات": "uae", "عراق": "iraq", "کویت": "kuwait",
+            "بحرین": "bahrain", "عمان": "oman", "مصر": "egypt", "ترکیه": "turkey", "گرجستان": "georgia"
+        }
+        
+        # کد کشورهای مرتبط با عربستان
+        saudi_codes = ["sa", "ksa", "saudi", "saudi arabia", "saudi_arabia"]
+        
+        # تبدیل جستجوی فارسی به انگلیسی
+        english_query = persian_to_english.get(query, query)
+        
+        # لاگ کردن کوئری برای اشکال‌زدایی
+        logger.info(f"جستجوی کاربر: {query} -> {english_query}")
+        
+        for country_code, (country, flag, ips) in db.get_ipv4_countries().items():
+            # برای عربستان، کدهای مختلف را بررسی کنیم
+            if (country_code.lower() in saudi_codes or 
+                "saudi" in country.lower() or 
+                english_query in saudi_codes):
+                
+                # اگر جستجو مرتبط با عربستان است
+                if ("saudi" in english_query or 
+                    query == "عربستان" or 
+                    query == "عربستان سعودی" or 
+                    query == "سعودی"):
+                    results.append(f"{flag} {country}: {len(ips)} IP (کد کشور: {country_code})")
+                    logger.info(f"Saudi Arabia found: {country_code}, {country}")
+            
+            # جستجوی استاندارد در نام و کد کشور
+            elif (english_query in country.lower() or 
+                  english_query in country_code.lower() or 
+                  query in country.lower()):
+                results.append(f"{flag} {country}: {len(ips)} IP")
+            else:
+                # جستجو در آدرس‌های IP
+                for ip in ips:
+                    if query in ip:
+                        results.append(f"{flag} {country}: {ip}")
+        
+        if results:
+            # اگر تعداد نتایج زیاد است، آنها را به چند پیام تقسیم می‌کنیم
+            if len(results) > 30:
+                send_reply(update, f"🔍 {len(results)} نتیجه برای جستجوی '{query}' یافت شد.")
+                
+                for i in range(0, len(results), 30):
+                    chunk = results[i:i+30]
+                    message = f"نتایج {i+1} تا {min(i+30, len(results))}:\n" + "\n".join(chunk)
+                    update.message.reply_text(message)
+            else:
+                send_reply(update, f"🔍 نتایج جستجو برای '{query}':\n" + "\n".join(results))
+        else:
+            send_reply(update, f"❌ نتیجه‌ای برای جستجوی '{query}' یافت نشد.")
+            
+        context.user_data['search_mode_ipv4'] = False
+        
+        # بازگشت به منوی اصلی
+        buttons = [[InlineKeyboardButton("↩️ بازگشت", callback_data='ipv4_menu')]]
+        update.message.reply_text("عملیات جستجو به پایان رسید.", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+def cb_latest_ips_ipv4(update: Update, context: CallbackContext) -> None:
+    """نمایش آخرین IPهای اضافه شده"""
+    if not hasattr(db, 'last_added_ips'):
+        db.last_added_ips = deque(maxlen=20)  # ایجاد لیست برای نگهداری آخرین IPها
+        
+    if not db.last_added_ips:
+        send_reply(update, "هیچ IP جدیدی ثبت نشده است.")
+    else:
+        text = "🆕 آخرین IPهای افزوده شده:\n" + "\n".join(db.last_added_ips)
+        send_reply(update, text)
+    
+    # بازگشت به منوی IPv4
+    buttons = [[InlineKeyboardButton("↩️ بازگشت", callback_data='ipv4_menu')]]
+    update.callback_query.message.reply_text("", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# Define global continent mapping at the module level
+CONTINENT_MAP = {
+    'AS': 'آسیا 🌏', 'EU': 'اروپا 🇪🇺', 'AF': 'آفریقا 🌍', 
+    'NA': 'آمریکای شمالی 🌎', 'SA': 'آمریکای جنوبی 🌎', 
+    'OC': 'اقیانوسیه 🏝️', 'AN': 'جنوبگان 🏔️'
+}
+
+# Global country to continent mapping
+COUNTRY_TO_CONTINENT = {
+    # آسیا - Asia
+    'IR': 'AS', 'SA': 'AS', 'AE': 'AS', 'QA': 'AS', 'TR': 'AS', 'IQ': 'AS',
+    'KW': 'AS', 'OM': 'AS', 'BH': 'AS', 'CN': 'AS', 'JP': 'AS', 'ID': 'AS',
+    'IN': 'AS', 'KR': 'AS', 'SG': 'AS', 'PK': 'AS', 'MY': 'AS', 'TH': 'AS',
+    'KSA': 'AS', 'SAUDI': 'AS', 'SAUDI ARABIA': 'AS', 'SAUDI_ARABIA': 'AS',
+    'GE': 'AS', 'IL': 'AS', 'JO': 'AS', 'LB': 'AS', 'SY': 'AS',
+    'AF': 'AS', 'BD': 'AS', 'LK': 'AS', 'NP': 'AS', 'VN': 'AS', 'HK': 'AS',
+    'YE': 'AS', 'UZ': 'AS', 'TW': 'AS', 'TJ': 'AS', 'TM': 'AS', 'KZ': 'AS',
+    'KG': 'AS', 'MO': 'AS', 'LA': 'AS', 'KH': 'AS', 'MM': 'AS', 'MN': 'AS',
+    'MV': 'AS', 'BT': 'AS', 'BN': 'AS', 'TL': 'AS', 'PS': 'AS', 'PH': 'AS',
+    
+    # اروپا - Europe
+    'DE': 'EU', 'GB': 'EU', 'FR': 'EU', 'IT': 'EU', 'ES': 'EU', 'RU': 'EU',
+    'NL': 'EU', 'CH': 'EU', 'SE': 'EU', 'PL': 'EU', 'BE': 'EU', 'AT': 'EU',
+    'NO': 'EU', 'DK': 'EU', 'FI': 'EU', 'PT': 'EU', 'IE': 'EU', 'GR': 'EU',
+    'UA': 'EU', 'CZ': 'EU', 'RO': 'EU', 'BG': 'EU', 'HU': 'EU', 'HR': 'EU',
+    'RS': 'EU', 'SK': 'EU', 'SI': 'EU', 'EE': 'EU', 'LV': 'EU', 'LT': 'EU',
+    'IS': 'EU', 'LU': 'EU', 'MT': 'EU', 'CY': 'EU', 'ME': 'EU', 'MK': 'EU',
+    'AL': 'EU', 'BA': 'EU', 'MD': 'EU', 'MC': 'EU', 'LI': 'EU', 'SM': 'EU',
+    'VA': 'EU', 'BY': 'EU', 'GI': 'EU', 'JE': 'EU', 'IM': 'EU', 'FO': 'EU',
+    
+    # آفریقا - Africa
+    'EG': 'AF', 'ZA': 'AF', 'NG': 'AF', 'MA': 'AF', 'KE': 'AF', 'TN': 'AF',
+    'DZ': 'AF', 'GH': 'AF', 'CM': 'AF', 'CI': 'AF', 'LY': 'AF', 'SD': 'AF',
+    'ET': 'AF', 'AO': 'AF', 'TZ': 'AF', 'UG': 'AF', 'ZM': 'AF', 'ZW': 'AF',
+    'SN': 'AF', 'ML': 'AF', 'MR': 'AF', 'NE': 'AF', 'TD': 'AF', 'SO': 'AF',
+    'MG': 'AF', 'RW': 'AF', 'BF': 'AF', 'GA': 'AF', 'BJ': 'AF', 'BI': 'AF',
+    'DJ': 'AF', 'ER': 'AF', 'GM': 'AF', 'GN': 'AF', 'GQ': 'AF', 'GW': 'AF',
+    'LR': 'AF', 'LS': 'AF', 'MW': 'AF', 'MU': 'AF', 'MZ': 'AF', 'NA': 'AF',
+    'SC': 'AF', 'SL': 'AF', 'SS': 'AF', 'ST': 'AF', 'SZ': 'AF', 'TG': 'AF',
+    
+    # آمریکای شمالی - North America
+    'US': 'NA', 'CA': 'NA', 'MX': 'NA', 'PA': 'NA', 'CR': 'NA', 'CU': 'NA',
+    'DO': 'NA', 'GT': 'NA', 'HN': 'NA', 'SV': 'NA', 'NI': 'NA', 'JM': 'NA',
+    'HT': 'NA', 'BS': 'NA', 'TT': 'NA', 'BB': 'NA', 'BZ': 'NA', 'PR': 'NA',
+    'DM': 'NA', 'LC': 'NA', 'VC': 'NA', 'AG': 'NA', 'KN': 'NA', 'GD': 'NA',
+    
+    # آمریکای جنوبی - South America
+    'BR': 'SA', 'AR': 'SA', 'CL': 'SA', 'CO': 'SA', 'PE': 'SA', 'VE': 'SA',
+    'EC': 'SA', 'BO': 'SA', 'PY': 'SA', 'UY': 'SA', 'GY': 'SA', 'SR': 'SA',
+    'FK': 'SA', 'GF': 'SA',
+    
+    # اقیانوسیه - Oceania
+    'AU': 'OC', 'NZ': 'OC', 'FJ': 'OC', 'PG': 'OC', 'SB': 'OC', 'VU': 'OC',
+    'KI': 'OC', 'MH': 'OC', 'WS': 'OC', 'TO': 'OC', 'TV': 'OC', 'NR': 'OC',
+    'PW': 'OC', 'FM': 'OC', 'PF': 'OC', 'NC': 'OC', 'AS': 'OC', 'CK': 'OC',
+    'GU': 'OC', 'MP': 'OC', 'NU': 'OC', 'NF': 'OC', 'TK': 'OC', 'WF': 'OC',
+    
+    # جنوبگان - Antarctica
+    'AQ': 'AN', 'BV': 'AN', 'GS': 'AN', 'HM': 'AN', 'TF': 'AN'
+}
+
+def cb_continent_list_ipv4(update: Update, context: CallbackContext) -> None:
+    """نمایش لیست قاره‌ها برای انتخاب با چیدمان دو به دو"""
+    
+    # Log available countries for debugging
+    logger.info("Available countries in database for continent grouping:")
+    all_countries = db.get_ipv4_countries()
+    logger.info(f"Total countries: {len(all_countries)}")
+    for code, data in all_countries.items():
+        if len(data) >= 3 and len(data[2]) > 0:
+            logger.info(f"Country: {code}, Name: {data[0]}, IPs: {len(data[2])}")
+    
+    # چیدمان دو به دو دکمه‌ها با ترتیب خاص
+    buttons = [
+        [
+            InlineKeyboardButton(CONTINENT_MAP['AS'], callback_data='continent_ipv4_AS'),
+            InlineKeyboardButton(CONTINENT_MAP['EU'], callback_data='continent_ipv4_EU')
+        ],
+        [
+            InlineKeyboardButton(CONTINENT_MAP['AF'], callback_data='continent_ipv4_AF'),
+            InlineKeyboardButton(CONTINENT_MAP['NA'], callback_data='continent_ipv4_NA')
+        ],
+        [
+            InlineKeyboardButton(CONTINENT_MAP['SA'], callback_data='continent_ipv4_SA'),
+            InlineKeyboardButton(CONTINENT_MAP['OC'], callback_data='continent_ipv4_OC')
+        ],
+        [
+            InlineKeyboardButton(CONTINENT_MAP['AN'], callback_data='continent_ipv4_AN')
+        ],
+        [
+            InlineKeyboardButton("↩️ بازگشت", callback_data='ipv4_menu')
+        ]
+    ]
+    
+    # Use global COUNTRY_TO_CONTINENT mapping that's already defined 
+    # at the module level
+    
+    send_reply(update, "🌎 یک قاره را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+def cb_show_countries_by_continent_ipv4(update: Update, context: CallbackContext) -> None:
+    """نمایش کشورهای یک قاره خاص با چیدمان دو به دو"""
+    code = update.callback_query.data.split('_')[2]
+    
+    # Using the global COUNTRY_TO_CONTINENT mapping
+    # that's now defined at the module level
+    
+    # نام قاره‌ها برای نمایش
+    continent_names = {
+        'AS': 'آسیا 🌏', 'EU': 'اروپا 🇪🇺', 'AF': 'آفریقا 🌍', 
+        'NA': 'آمریکای شمالی 🌎', 'SA': 'آمریکای جنوبی 🌎', 
+        'OC': 'اقیانوسیه 🏝️', 'AN': 'جنوبگان 🏔️'
+    }
+    
+    logger.info(f"Finding countries for continent: {code}")
+    
+    # کشورهای این قاره را پیدا کن
+    countries = [k for k, v in COUNTRY_TO_CONTINENT.items() if v == code]
+    
+    if not countries:
+        send_reply(update, f"کشوری برای قاره {continent_names.get(code, code)} ثبت نشده است.")
+        return
+    
+    # تهیه لیست کشورهایی که IP دارند
+    countries_with_ips = []
+    all_ipv4_countries = db.get_ipv4_countries()
+    
+    logger.info(f"Available country codes in DB: {list(all_ipv4_countries.keys())}")
+    logger.info(f"Countries in this continent: {countries}")
+    
+    # Special handling for problematic country codes (to prevent duplicates)
+    handled_countries = set()
+    
+    # First handle Saudi Arabia specially if in Asia continent
+    if code == 'AS':
+        saudi_variants = ['SA', 'KSA', 'SAUDI', 'SAUDI ARABIA', 'SAUDI_ARABIA']
+        for variant in saudi_variants:
+            if variant in all_ipv4_countries:
+                saudi_data = all_ipv4_countries[variant]
+                if saudi_data and len(saudi_data) >= 3 and len(saudi_data[2]) > 0:
+                    countries_with_ips.append((variant, saudi_data[0], saudi_data[1], len(saudi_data[2])))
+                    logger.info(f"Added Saudi Arabia variant: {variant}, {saudi_data[0]}, {len(saudi_data[2])} IPs")
+                    # Mark all Saudi variants as handled
+                    for sv in saudi_variants:
+                        handled_countries.add(sv.upper())
+                    break
+    
+    # Process all other countries
+    for country_code in countries:
+        # Skip if already handled as a special case
+        if country_code.upper() in handled_countries:
+            continue
+            
+        # Try variants of the country code (uppercase, lowercase)
+        for code_variant in [country_code, country_code.upper(), country_code.lower()]:
+            if code_variant in all_ipv4_countries:
+                country_data = all_ipv4_countries[code_variant]
+                if country_data and len(country_data) >= 3:
+                    country_name, flag, ips = country_data[0], country_data[1], country_data[2]
+                    if len(ips) > 0:  # فقط کشورهایی که IP دارند را اضافه کن
+                        countries_with_ips.append((code_variant, country_name, flag, len(ips)))
+                        logger.info(f"Found country with IPs: {code_variant}, {country_name}, {len(ips)} IPs")
+                        handled_countries.add(country_code.upper())
+                        break
+    
+    if not countries_with_ips:
+        send_reply(update, f"هیچ کشوری با IP در قاره {continent_names.get(code, code)} یافت نشد.")
+        return
+    
+    # مرتب‌سازی کشورها بر اساس تعداد IP (نزولی)
+    countries_with_ips.sort(key=lambda x: x[3], reverse=True)
+    
+    # ایجاد دکمه‌ها با چیدمان دو به دو
+    buttons = []
+    row = []
+    for i, (country_code, country_name, flag, ip_count) in enumerate(countries_with_ips):
+        row.append(InlineKeyboardButton(
+            f"{flag} {country_name} ({ip_count})", 
+            callback_data=f"country_{country_code}")
+        )
+        
+        # هر دو کشور، یک ردیف جدید
+        if i % 2 == 1 or i == len(countries_with_ips) - 1:
+            buttons.append(row)
+            row = []
+    
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='continent_list_ipv4')])
+    
+    send_reply(update, 
+               f"🌍 کشورهای قاره {continent_names.get(code, code)} با IP:\n"
+               f"لطفاً یک کشور را انتخاب کنید:",
+               reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def error_handler(update: object, context: CallbackContext) -> None:
     logger.error("❗Unhandled exception: %s", context.error)
     if isinstance(update, Update) and update.effective_user:
@@ -733,22 +1126,140 @@ def cb_admin_process_ip(update: Update, context: CallbackContext) -> int:
 
 def process_ipv4_entry(update: Update, context: CallbackContext) -> int:
     try:
+        import re
         text = update.message.text.strip()
-        # Extract IP and country details
+        ip_address = None
+        country_name = None
+        flag = None
+        
+        # الگوی استخراج آدرس IP
+        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+        ip_match = re.search(ip_pattern, text)
+        
+        if not ip_match:
+            send_reply(update, "❌ هیچ آدرس IP معتبری در متن یافت نشد.")
+            return ConversationHandler.END
+            
+        ip_address = ip_match.group(0)
+        
+        # حالت اول: [PING OK] 39.62.163.207 -> 🇵🇰 Pakistan
         if '->' in text:
-            ip_part, country_part = text.split('->')
-            ip_address = ip_part.split()[-1]
-            flag, country_name = country_part.split(maxsplit=1)
-            # Add the IP to the database
-            db.add_ipv4_address(country_name.strip(), flag.strip(),
-                                ip_address.strip())
-            send_reply(update, "✅ آدرس IPv4 پردازش شد و افزوده گردید.")
+            try:
+                ip_part, country_part = text.split('->')
+                flag, country_name = country_part.strip().split(maxsplit=1)
+            except ValueError:
+                # اگر فرمت دقیقاً مطابق نبود، سعی می‌کنیم کشور را از API بگیریم
+                country_result = get_country_info(ip_address)
+                if country_result:
+                    country_name, flag = country_result
+                else:
+                    send_reply(update, "❌ نمی‌توان اطلاعات کشور را تشخیص داد.")
+                    return ConversationHandler.END
+                    
+        # حالت دوم: New IP Found! IP: 188.210.21.97 Country: Germany
+        elif 'Country:' in text or 'country:' in text:
+            try:
+                # استخراج نام کشور از متن
+                country_pattern = r'[Cc]ountry:?\s*([A-Za-z\s]+)'
+                country_match = re.search(country_pattern, text)
+                
+                if country_match:
+                    country_name = country_match.group(1).strip()
+                    
+                    # تلاش برای یافتن پرچم کشور
+                    country_result = get_country_info(ip_address)
+                    if country_result:
+                        _, flag = country_result
+                    else:
+                        flag = "🏳️"  # پرچم پیش‌فرض
+                else:
+                    # اگر کشور در متن نبود، از API استفاده می‌کنیم
+                    country_result = get_country_info(ip_address)
+                    if country_result:
+                        country_name, flag = country_result
+                    else:
+                        send_reply(update, "❌ نمی‌توان اطلاعات کشور را تشخیص داد.")
+                        return ConversationHandler.END
+            except Exception as e:
+                send_reply(update, f"❌ خطا در استخراج اطلاعات کشور: {e}")
+                return ConversationHandler.END
+        
+        # حالت سوم: فقط آدرس IP بدون اطلاعات اضافی
         else:
-            send_reply(update,
-                       "❌ فرمت وارد شده نادرست است. لطفاً مجدد تلاش کنید.")
+            # دریافت اطلاعات کشور از API
+            country_result = get_country_info(ip_address)
+            if country_result:
+                country_name, flag = country_result
+            else:
+                send_reply(update, "❌ نمی‌توان اطلاعات کشور را تشخیص داد.")
+                return ConversationHandler.END
+        
+        # افزودن IP به پایگاه داده
+        if ip_address and country_name and flag:
+            db.add_ipv4_address(country_name.strip(), flag.strip(), ip_address.strip())
+            send_reply(update, f"✅ آدرس IPv4 {ip_address} برای کشور {flag} {country_name} افزوده شد.")
+        else:
+            send_reply(update, "❌ اطلاعات ناقص است. نمی‌توان IP را اضافه کرد.")
+            
     except Exception as e:
         send_reply(update, f"❌ مشکلی در پردازش وجود دارد: {e}")
+    
     return ConversationHandler.END
+
+def get_country_info(ip_address):
+    """دریافت اطلاعات کشور برای یک آدرس IP با استفاده از API"""
+    try:
+        response = requests.get(f"https://api.iplocation.net/?ip={ip_address}")
+        if response.status_code == 200:
+            data = response.json()
+            country_name = data.get('country_name', 'نامشخص')
+            country_code = data.get('country_code', '').upper()
+            
+            # نگاشت کشورهای خاص
+            special_country_codes = {
+                "Qatar": "QA", "UAE": "AE", "United Arab Emirates": "AE",
+                "Saudi Arabia": "SA", "Iran": "IR", "Iraq": "IQ",
+                "Kuwait": "KW", "Bahrain": "BH", "Oman": "OM",
+                "Egypt": "EG", "Turkey": "TR", "Russia": "RU",
+                "United States": "US", "USA": "US", "Germany": "DE",
+                "United Kingdom": "GB", "UK": "GB", "France": "FR",
+                "China": "CN", "India": "IN", "Japan": "JP",
+                "Canada": "CA", "Pakistan": "PK"
+            }
+            
+            if country_name in special_country_codes:
+                country_code = special_country_codes[country_name]
+                
+            # نگاشت پرچم‌های خاص
+            special_flags = {
+                "QA": "🇶🇦", "AE": "🇦🇪", "SA": "🇸🇦", "IR": "🇮🇷",
+                "IQ": "🇮🇶", "KW": "🇰🇼", "BH": "🇧🇭", "OM": "🇴🇲",
+                "EG": "🇪🇬", "TR": "🇹🇷", "RU": "🇷🇺", "US": "🇺🇸",
+                "DE": "🇩🇪", "GB": "🇬🇧", "FR": "🇫🇷", "CN": "🇨🇳",
+                "IN": "🇮🇳", "JP": "🇯🇵", "CA": "🇨🇦", "PK": "🇵🇰"
+            }
+            
+            flag = "🏳️"  # پرچم پیش‌فرض
+            
+            if country_code in special_flags:
+                flag = special_flags[country_code]
+            elif country_code and len(country_code) == 2:
+                try:
+                    # تبدیل کد کشور به پرچم
+                    flag_chars = []
+                    for c in country_code:
+                        if 'A' <= c <= 'Z':
+                            flag_chars.append(chr(ord(c) + 127397))
+                    if len(flag_chars) == 2:
+                        flag = "".join(flag_chars)
+                except Exception:
+                    pass
+                    
+            return country_name, flag
+    except Exception:
+        pass
+    
+    return None
 
 
 def generate_wireguard_config() -> str:
@@ -778,12 +1289,11 @@ PersistentKeepalive = 25
 
 @require_subscription
 def cb_admin_manage_buttons(update: Update, context: CallbackContext) -> None:
-    """مدیریت دکمه‌های ربات"""
-    buttons = []
-
-    # ایجاد دکمه‌ها برای هر قابلیت
+    """مدیریت دکمه‌های ربات با امکان مخفی‌سازی یک به یک"""
+    # دکمه‌های منوی اصلی
+    main_menu_buttons = []
     for button_name, is_disabled in DISABLED_BUTTONS.items():
-        status = "🚫 غیرفعال است" if is_disabled else "✅ فعال است"
+        status = "🔴 غیرفعال" if is_disabled else "🟢 فعال"
         action = "enable" if is_disabled else "disable"
         button_text = ""
 
@@ -800,19 +1310,66 @@ def cb_admin_manage_buttons(update: Update, context: CallbackContext) -> None:
         elif button_name == 'support':
             button_text = f"❓ پشتیبانی: {status}"
 
-        buttons.append([
+        main_menu_buttons.append([
             InlineKeyboardButton(
                 button_text,
                 callback_data=f'admin_{action}_button_{button_name}')
         ])
+    
+    # دکمه‌های زیرمنوی IPv4
+    sub_ipv4_buttons = []
+    # اگر کلیدهای زیرمنو در DISABLED_BUTTONS وجود ندارد، آنها را اضافه کنیم
+    if 'ipv4_country_list' not in DISABLED_BUTTONS:
+        DISABLED_BUTTONS['ipv4_country_list'] = False
+    if 'ipv4_quick_search' not in DISABLED_BUTTONS:
+        DISABLED_BUTTONS['ipv4_quick_search'] = False
+    if 'ipv4_continent' not in DISABLED_BUTTONS:
+        DISABLED_BUTTONS['ipv4_continent'] = False
+    if 'ipv4_latest' not in DISABLED_BUTTONS:
+        DISABLED_BUTTONS['ipv4_latest'] = False
+    
+    # ایجاد دکمه‌های زیرمنوی IPv4
+    sub_menu_items = [
+        ('ipv4_country_list', "📋 مشاهده لیست کشورها"),
+        ('ipv4_quick_search', "🔍 جستجوی سریع کشور/IP"),
+        ('ipv4_continent', "🌎 دسته‌بندی بر اساس قاره"),
+        ('ipv4_latest', "🆕 آخرین IPهای افزوده شده")
+    ]
+    
+    for key, label in sub_menu_items:
+        status = "🔴 غیرفعال" if DISABLED_BUTTONS.get(key, False) else "🟢 فعال"
+        action = "enable" if DISABLED_BUTTONS.get(key, False) else "disable"
+        sub_ipv4_buttons.append([
+            InlineKeyboardButton(
+                f"{label}: {status}",
+                callback_data=f'admin_{action}_button_{key}')
+        ])
+    
+    # تنظیم دکمه‌های نمایش داده شده بر اساس حالت جاری
+    current_mode = context.user_data.get('button_management_mode', 'main')
+    
+    buttons = []
+    if current_mode == 'main':
+        buttons = main_menu_buttons
+        buttons.append([InlineKeyboardButton("📋 مدیریت زیرمنوی IPv4", callback_data='admin_manage_sub_ipv4')])
+    elif current_mode == 'sub_ipv4':
+        buttons = sub_ipv4_buttons
+        buttons.append([InlineKeyboardButton("↩️ بازگشت به مدیریت دکمه‌های اصلی", callback_data='admin_manage_main_buttons')])
+    
+    buttons.append([InlineKeyboardButton("↩️ بازگشت به پنل ادمین", callback_data='admin_panel')])
+    
+    title = "🚫 مدیریت دکمه‌های اصلی ربات:" if current_mode == 'main' else "🚫 مدیریت دکمه‌های زیرمنوی IPv4:"
+    send_reply(update, title, reply_markup=InlineKeyboardMarkup(buttons))
 
-    buttons.append([
-        InlineKeyboardButton("↩️ بازگشت به پنل ادمین",
-                             callback_data='admin_panel')
-    ])
-    send_reply(update,
-               "🚫 مدیریت دکمه‌های ربات:",
-               reply_markup=InlineKeyboardMarkup(buttons))
+def cb_admin_manage_sub_ipv4(update: Update, context: CallbackContext) -> None:
+    """مدیریت دکمه‌های زیرمنوی IPv4"""
+    context.user_data['button_management_mode'] = 'sub_ipv4'
+    cb_admin_manage_buttons(update, context)
+
+def cb_admin_manage_main_buttons(update: Update, context: CallbackContext) -> None:
+    """بازگشت به مدیریت دکمه‌های اصلی"""
+    context.user_data['button_management_mode'] = 'main'
+    cb_admin_manage_buttons(update, context)
 
 
 def cb_admin_toggle_button(update: Update, context: CallbackContext) -> None:
@@ -837,11 +1394,17 @@ def cb_admin_toggle_button(update: Update, context: CallbackContext) -> None:
 
 
 def cb_wireguard(update: Update, context: CallbackContext) -> None:
-    """تولید پیکربندی وایرگارد اختصاصی."""
+    """تولید پیکربندی وایرگارد اختصاصی با گزینه‌های متنوع."""
     user_id = update.callback_query.from_user.id
 
     # بررسی نوع اشتراک و کم کردن توکن در صورت نیاز
     user_data = db.active_users.get(user_id, {})
+    if not db.is_user_active(user_id):
+        send_reply(update,
+                   "❌ اشتراک فعال ندارید. لطفاً ابتدا فعال‌سازی کنید.",
+                   reply_markup=main_menu_keyboard(user_id))
+        return
+
     if user_data.get('type') == 'token':
         # کسر توکن برای هر بار استفاده (وایرگارد ۲ توکن نیاز دارد)
         current_tokens = user_data.get('tokens', 0)
@@ -852,26 +1415,180 @@ def cb_wireguard(update: Update, context: CallbackContext) -> None:
                 reply_markup=main_menu_keyboard(user_id))
             return
 
+    # نمایش منوی انتخاب آدرس
+    addresses = [
+        ("10.10.0.2/32", "محدوده 10.10.x.x"),
+        ("10.66.66.2/32", "محدوده 10.66.x.x"),
+        ("192.168.100.2/32", "محدوده 192.168.x.x"),
+        ("172.16.0.2/32", "محدوده 172.16.x.x")
+    ]
+    
+    buttons = []
+    for addr, desc in addresses:
+        buttons.append([InlineKeyboardButton(f"{addr} ({desc})", callback_data=f'wg_addr_{addr}')])
+    
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='back')])
+    
+    send_reply(update, 
+               "🔒 ساخت کانفیگ وایرگارد اختصاصی\n\n"
+               "لطفاً آدرس IP مورد نظر را انتخاب کنید:",
+               reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_wg_select_address(update: Update, context: CallbackContext) -> None:
+    """انتخاب آدرس IP برای کانفیگ وایرگارد"""
+    user_id = update.callback_query.from_user.id
+    addr = update.callback_query.data.replace('wg_addr_', '')
+    
+    # ذخیره آدرس انتخاب شده
+    context.user_data['wg_address'] = addr
+    
+    # نمایش منوی انتخاب پورت
+    ports = [
+        (53, "DNS"),
+        (80, "HTTP"),
+        (443, "HTTPS"),
+        (8080, "Proxy"),
+        (51820, "WireGuard Default"),
+        (1194, "OpenVPN Default")
+    ]
+    
+    buttons = []
+    row = []
+    for i, (port, desc) in enumerate(ports):
+        row.append(InlineKeyboardButton(f"{port} ({desc})", callback_data=f'wg_port_{port}'))
+        if i % 2 == 1:
+            buttons.append(row)
+            row = []
+    
+    if row:  # اضافه کردن آخرین ردیف اگر ناقص باشد
+        buttons.append(row)
+    
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='wireguard')])
+    
+    send_reply(update, 
+               "🔒 ساخت کانفیگ وایرگارد اختصاصی\n\n"
+               f"✅ آدرس انتخاب شده: `{addr}`\n\n"
+               "لطفاً پورت مورد نظر را انتخاب کنید:",
+               parse_mode=ParseMode.MARKDOWN,
+               reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_wg_select_port(update: Update, context: CallbackContext) -> None:
+    """انتخاب پورت برای کانفیگ وایرگارد"""
+    user_id = update.callback_query.from_user.id
+    port = int(update.callback_query.data.replace('wg_port_', ''))
+    
+    # ذخیره پورت انتخاب شده
+    context.user_data['wg_port'] = port
+    
+    # انتخاب DNS
+    dns_options = [
+        ("1.1.1.1,8.8.8.8", "Cloudflare + Google"),
+        ("8.8.8.8,8.8.4.4", "Google"),
+        ("9.9.9.9,149.112.112.112", "Quad9"),
+        ("208.67.222.222,208.67.220.220", "OpenDNS")
+    ]
+    
+    buttons = []
+    for dns, desc in dns_options:
+        buttons.append([InlineKeyboardButton(f"{desc}", callback_data=f'wg_dns_{dns}')])
+    
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data=f'wg_addr_{context.user_data["wg_address"]}')])
+    
+    send_reply(update, 
+               "🔒 ساخت کانفیگ وایرگارد اختصاصی\n\n"
+               f"✅ آدرس انتخاب شده: `{context.user_data['wg_address']}`\n"
+               f"✅ پورت انتخاب شده: `{port}`\n\n"
+               "لطفاً DNS مورد نظر را انتخاب کنید:",
+               parse_mode=ParseMode.MARKDOWN,
+               reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_wg_select_dns(update: Update, context: CallbackContext) -> None:
+    """انتخاب DNS برای کانفیگ وایرگارد و تولید نهایی کانفیگ"""
+    user_id = update.callback_query.from_user.id
+    dns = update.callback_query.data.replace('wg_dns_', '')
+    
+    # ذخیره DNS انتخاب شده
+    context.user_data['wg_dns'] = dns
+    
+    # کسر توکن‌ها (اگر حساب توکنی باشد)
+    user_data = db.active_users.get(user_id, {})
+    if user_data.get('type') == 'token':
         # کم کردن ۲ توکن و به‌روزرسانی پایگاه داده
-        db.active_users[user_id]['tokens'] = current_tokens - 2
+        db.active_users[user_id]['tokens'] = user_data.get('tokens', 0) - 2
         db.save_database()
+    
+    # انتخاب endpoint مناسب
+    endpoints = db.get_endpoints()
+    if not endpoints:
+        # اگر endpoint تعریف نشده باشد، یک نمونه پیش‌فرض استفاده کنیم
+        endpoint = "162.159.192.1"
+    else:
+        import random
+        endpoint = random.choice(endpoints)
+    
+    # تولید کانفیگ وایرگارد با تنظیمات انتخاب شده
+    from wg import WireguardConfig
+    wg = WireguardConfig()
+    
+    private_key = wg.generate_private_key()
+    public_key = wg.generate_public_key()
+    
+    # انتخاب MTU تصادفی از بین مقادیر معمول
+    mtu = random.choice([1280, 1380, 1420, 1480])
+    
+    # تنظیم PersistentKeepalive
+    keepalive = random.choice([15, 25, 30, 40])
+    
+    # ساخت کانفیگ با تنظیمات سفارشی
+    config = f"""[Interface]
+PrivateKey = {private_key}
+Address = {context.user_data['wg_address']}
+DNS = {context.user_data['wg_dns']}
+MTU = {mtu}
 
-    # استفاده از کلاس WireguardConfig برای تولید پیکربندی
-    wg_config = WireguardConfig()
-    config = wg_config.generate_config()
-
-    # نمایش پیکربندی به کاربر
-    message = "🔒 پیکربندی وایرگارد اختصاصی شما:\n\n"
-    message += f"```\n{config}\n```"
-
+[Peer]
+PublicKey = {public_key}
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = {endpoint}:{context.user_data['wg_port']}
+PersistentKeepalive = {keepalive}
+"""
+    
+    # تلاش برای دریافت اطلاعات کشور endpoint
+    try:
+        import requests
+        response = requests.get(f"https://api.iplocation.net/?ip={endpoint}")
+        if response.status_code == 200:
+            country_data = response.json()
+            country = country_data.get('country_name', 'نامشخص')
+        else:
+            country = 'نامشخص'
+    except Exception:
+        country = 'نامشخص'
+    
+    # نمایش کانفیگ به کاربر
+    message = f"✅ کانفیگ وایرگارد با موفقیت ایجاد شد!\n\n"
+    message += f"📋 اطلاعات کانفیگ:\n"
+    message += f"• 🌐 آدرس IP: `{context.user_data['wg_address']}`\n"
+    message += f"• 🔌 پورت: `{context.user_data['wg_port']}`\n"
+    message += f"• 🔍 DNS: `{context.user_data['wg_dns']}`\n"
+    message += f"• 📏 MTU: `{mtu}`\n"
+    message += f"• 💓 KeepAlive: `{keepalive}`\n"
+    message += f"• 🌍 کشور سرور: `{country}`\n"
+    message += f"• 🖥️ Endpoint: `{endpoint}:{context.user_data['wg_port']}`\n\n"
+    
+    # نمایش کانفیگ با فرمت مناسب برای کپی کردن
+    message += "```\n" + config + "\n```"
+    
     # نمایش تعداد توکن‌های باقی‌مانده برای کاربران توکنی
     if user_data.get('type') == 'token':
         remaining_tokens = db.active_users[user_id].get('tokens', 0)
         message += f"\n\n🔄 توکن‌های باقی‌مانده: {remaining_tokens}"
-
-    buttons = [[
-        InlineKeyboardButton("↩️ بازگشت به منوی اصلی", callback_data='back')
-    ]]
+    
+    buttons = [
+        [InlineKeyboardButton("🔄 ساخت کانفیگ جدید", callback_data='wireguard')],
+        [InlineKeyboardButton("↩️ بازگشت به منوی اصلی", callback_data='back')]
+    ]
+    
     send_reply(update,
                message,
                parse_mode=ParseMode.MARKDOWN,
@@ -879,6 +1596,25 @@ def cb_wireguard(update: Update, context: CallbackContext) -> None:
 
 
 def main() -> None:
+    # مکانیزم قفل برای جلوگیری از اجرای چندگانه ربات
+    import os
+    import sys
+    import socket
+    import fcntl
+    import struct
+    
+    # ایجاد سوکت برای قفل کردن
+    lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    
+    try:
+        # تلاش برای قفل کردن فرآیند
+        lock_socket.bind('\0telegram_bot_lock')
+        # قفل فایل توصیف‌کننده برای اطمینان از انحصار
+        fcntl.lockf(lock_socket.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (socket.error, IOError):
+        logger.error("یک نمونه دیگر از ربات در حال اجراست. خروج...")
+        sys.exit(1)
+    
     # عادی‌سازی کلیدهای کشورها برای حل مشکل عربستان و سایر کشورها
     normalized_keys = {}
     # ادغام کلیدهای تکراری کشورها با نام‌های مشابه
@@ -907,7 +1643,7 @@ def main() -> None:
 
     # ذخیره تغییرات
     db.save_database()
-    
+
     # شروع بکاپ‌گیری خودکار
     backup_mgr.start_backup_thread()
 
@@ -1103,7 +1839,7 @@ def main() -> None:
             CommandHandler('stop', stop_command)
         ],
     )
-    
+
     # کانورسیشن هندلر برای پردازش گروهی IP
     batch_process_ip_conv = ConversationHandler(
         entry_points=[
@@ -1122,6 +1858,8 @@ def main() -> None:
         ],
     )
 
+    # استفاده از حالت تعریف شده برای افزودن گروهی Endpoint ها
+    
     # ثبت همه کانورسیشن هندلرها
     dp.add_handler(activate_conv)
     dp.add_handler(addcode_conv)
@@ -1134,6 +1872,54 @@ def main() -> None:
     dp.add_handler(broadcast_conv)
     dp.add_handler(set_channel_conv)
     dp.add_handler(batch_process_ip_conv)
+    
+    # اضافه کردن کانورسیشن هندلر برای افزودن گروهی Endpoint ها
+    batch_endpoints_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(cb_admin_batch_add_endpoints,
+                                pattern='^admin_batch_add_endpoints$')
+        ],
+        states={
+            ENTER_BATCH_ENDPOINTS: [
+                MessageHandler(Filters.text & ~Filters.command,
+                            handle_batch_endpoints)
+            ]
+        },
+        fallbacks=[
+            CallbackQueryHandler(cb_back, pattern='^back$'),
+            CommandHandler('stop', stop_command)
+        ],
+    )
+    dp.add_handler(batch_endpoints_conv)
+    
+    # هندلرهای جدید سیستم کانال اجباری
+    dp.add_handler(CallbackQueryHandler(cb_check_membership, pattern='^check_membership$'))
+    dp.add_handler(CallbackQueryHandler(cb_channel_help, pattern='^channel_help$'))
+    
+    # هندلرهای منوی ادمین بهبود یافته
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_main, pattern='^admin_menu_main$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_ip, pattern='^admin_menu_ip$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_subscription, pattern='^admin_menu_subscription$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_users, pattern='^admin_menu_users$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_wireguard, pattern='^admin_menu_wireguard$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_menu_settings, pattern='^admin_menu_settings$'))
+    
+    # هندلرهای سیستم مدیریت دکمه‌های بهبود یافته
+    dp.add_handler(CallbackQueryHandler(cb_admin_manage_sub_ipv4, pattern='^admin_manage_sub_ipv4$'))
+    dp.add_handler(CallbackQueryHandler(cb_admin_manage_main_buttons, pattern='^admin_manage_main_buttons$'))
+    
+    # هندلرهای تأیید افزودن IP گروهی
+    dp.add_handler(CallbackQueryHandler(cb_confirm_add_batch_ips, pattern='^confirm_add_batch_ips$'))
+    dp.add_handler(CallbackQueryHandler(cb_confirm_add_batch_ips_notify, pattern='^confirm_add_batch_ips_notify$'))
+    dp.add_handler(CallbackQueryHandler(cb_cancel_add_batch_ips, pattern='^cancel_add_batch_ips$'))
+    
+    # هندلرهای وایرگارد بهبود یافته
+    dp.add_handler(CallbackQueryHandler(cb_wg_select_address, pattern='^wg_addr_'))
+    dp.add_handler(CallbackQueryHandler(cb_wg_select_port, pattern='^wg_port_'))
+    dp.add_handler(CallbackQueryHandler(cb_wg_select_dns, pattern='^wg_dns_'))
+    
+    # هندلر برای صفحه‌بندی آدرس‌های IP
+    dp.add_handler(CallbackQueryHandler(cb_country_ips, pattern='^country_page_'))
 
     # سایر هندلرها
     dp.add_handler(
@@ -1159,6 +1945,18 @@ def main() -> None:
     dp.add_handler(
         CallbackQueryHandler(cb_add_validated_ip,
                              pattern='^add_validated_ip_'))
+                             
+    # هندلرهای جدید برای منوی IPv4
+    dp.add_handler(CallbackQueryHandler(cb_ipv4_menu, pattern='^ipv4_menu$'))
+    dp.add_handler(CallbackQueryHandler(cb_quick_search_ipv4, pattern='^quick_search_ipv4$'))
+    dp.add_handler(CallbackQueryHandler(cb_latest_ips_ipv4, pattern='^latest_ips_ipv4$'))
+    dp.add_handler(CallbackQueryHandler(cb_continent_list_ipv4, pattern='^continent_list_ipv4$'))
+    dp.add_handler(CallbackQueryHandler(cb_show_countries_by_continent_ipv4, pattern='^continent_ipv4_'))
+    
+    # هندلر برای جستجوی متنی
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command & ~Filters.update.edited_message, 
+                                  handle_search_input_ipv4, 
+                                  pass_user_data=True))
 
     # هندلرهای جدید برای درخواست و تایید/رد IP
     dp.add_handler(
@@ -1194,6 +1992,10 @@ def main() -> None:
                              pattern='^manage_ipv4_buttons$'))
     dp.add_handler(
         CallbackQueryHandler(cb_toggle_ipv4, pattern='^toggle_ipv4_'))
+        
+    # هندلر برای مشاهده کدهای فعال‌سازی
+    dp.add_handler(
+        CallbackQueryHandler(cb_admin_view_codes, pattern='^admin_view_codes$'))
 
     # هندلرهای مدیریت IPv6
     dp.add_handler(
@@ -1222,7 +2024,7 @@ def main() -> None:
         CallbackQueryHandler(cb_remove_country_ips,
                              pattern='^remove_country_'))
     dp.add_handler(CallbackQueryHandler(cb_remove_ip, pattern='^remove_ip_'))
-    
+
     # هندلرهای مدیریت بکاپ
     dp.add_handler(
         CallbackQueryHandler(cb_admin_manage_backups,
@@ -1236,6 +2038,9 @@ def main() -> None:
     dp.add_handler(
         CallbackQueryHandler(cb_toggle_auto_backup,
                              pattern='^(enable|disable)_auto_backup$'))
+    dp.add_handler(
+        CallbackQueryHandler(cb_send_latest_backup,
+                             pattern='^send_latest_backup$'))
 
     # هندلر دکمه‌های غیرفعال
     dp.add_handler(
@@ -1253,8 +2058,28 @@ def main() -> None:
     dp.add_error_handler(error_handler)
 
     logger.info("Bot start✅✅✅")
-    updater.start_polling()
-    updater.idle()
+    # اضافه کردن مدیریت خطا و سیگنال
+    def cleanup_and_exit(signum=None, frame=None):
+        logger.info("در حال خروج و پاکسازی منابع...")
+        backup_mgr.stop_backup_thread()
+        updater.stop()
+        logger.info("ربات با موفقیت متوقف شد")
+    
+    # ثبت تابع پاکسازی برای سیگنال‌های خروج
+    import signal
+    signal.signal(signal.SIGINT, cleanup_and_exit)
+    signal.signal(signal.SIGTERM, cleanup_and_exit)
+    
+    try:
+        logger.info("Bot started successfully ✅")
+        updater.start_polling(clean=True)
+        updater.idle()
+    except Exception as e:
+        logger.error(f"خطای غیرمنتظره: {e}")
+        cleanup_and_exit()
+    finally:
+        # اطمینان از اجرای پاکسازی
+        cleanup_and_exit()
 
 
 def cb_admin_shutdown(update: Update, context: CallbackContext) -> None:
@@ -1879,11 +2704,36 @@ def check_channel_membership(user_id, context) -> bool:
 
 def create_join_channel_button() -> InlineKeyboardMarkup:
     """ایجاد دکمه عضویت در کانال."""
-    buttons = [[
-        InlineKeyboardButton("🔔 عضویت در کانال",
-                             url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")
-    ]]
+    buttons = [
+        [InlineKeyboardButton("🔔 عضویت در کانال", url=f"https://t.me/{REQUIRED_CHANNEL[1:]}")],
+        [InlineKeyboardButton("🔄 بررسی مجدد عضویت", callback_data='check_membership')],
+        [InlineKeyboardButton("❓ راهنما", callback_data='channel_help')]
+    ]
     return InlineKeyboardMarkup(buttons)
+
+def cb_check_membership(update: Update, context: CallbackContext) -> None:
+    """بررسی مجدد عضویت کاربر در کانال"""
+    user_id = update.effective_user.id
+    
+    if check_channel_membership(user_id, context):
+        send_reply(update, 
+                   "✅ عضویت شما در کانال تأیید شد. اکنون می‌توانید از ربات استفاده کنید.",
+                   reply_markup=main_menu_keyboard(user_id))
+    else:
+        send_reply(update,
+                  f"❌ شما هنوز در کانال {REQUIRED_CHANNEL} عضو نشده‌اید. لطفاً ابتدا عضو شوید.",
+                  reply_markup=create_join_channel_button())
+
+def cb_channel_help(update: Update, context: CallbackContext) -> None:
+    """راهنمای عضویت در کانال"""
+    help_text = (
+        "🔔 راهنمای عضویت در کانال:\n\n"
+        f"1. ابتدا روی دکمه «عضویت در کانال» کلیک کنید تا به کانال {REQUIRED_CHANNEL} هدایت شوید.\n"
+        "2. روی دکمه «Join» یا «عضویت» در کانال کلیک کنید.\n"
+        "3. پس از عضویت، به ربات برگردید و روی دکمه «بررسی مجدد عضویت» کلیک کنید.\n\n"
+        "❗️ در صورت بروز مشکل، با پشتیبانی تماس بگیرید."
+    )
+    send_reply(update, help_text, reply_markup=create_join_channel_button())
 
     # حذف درخواست از لیست انتظار
     del PENDING_IPS[request_id]
@@ -1942,69 +2792,181 @@ def cb_admin_batch_process_ip(update: Update, context: CallbackContext) -> int:
 
 def process_batch_ips(update: Update, context: CallbackContext) -> int:
     """پردازش گروهی آدرس‌های IP دریافتی."""
+    import re
     text = update.message.text.strip()
-    
+
     # نمایش پیام انتظار
     status_message = update.message.reply_text("🔄 در حال پردازش آدرس‌های IP... لطفاً صبر کنید.")
-    
+
     try:
         # استخراج و پردازش آدرس‌های IP
         ip_groups = ip_processor.process_bulk_ips(text)
-        
+
         if not ip_groups:
             status_message.edit_text("❌ هیچ آدرس IP معتبری در متن ارسالی یافت نشد.")
             return ENTER_BATCH_IPS
-        
+
         total_ips = sum(len(ips) for ips in ip_groups.values())
+
+        # ذخیره اطلاعات در user_data برای استفاده بعدی
+        context.user_data['ip_groups'] = ip_groups
+        context.user_data['total_ips'] = total_ips
+
+        # بروزرسانی پیام با اطلاعات پردازش اولیه و درخواست تأیید
+        preview = f"✅ {total_ips} آدرس IP شناسایی شد.\n🌐 در {len(ip_groups)} کشور مختلف.\n\n"
         
-        # بروزرسانی پیام با اطلاعات پردازش اولیه
-        status_message.edit_text(f"✅ {total_ips} آدرس IP شناسایی شد.\n"
-                               f"🌐 در {len(ip_groups)} کشور مختلف.\n\n"
-                               "🔄 در حال اضافه کردن به دیتابیس...")
-        
-        # اضافه کردن آدرس‌ها به دیتابیس و تولید گزارش
-        added_count = 0
-        country_reports = []
-        
+        # نمایش پیش‌نمایش کشورها و تعداد IPها
+        country_previews = []
         for country_info, ip_list in ip_groups.items():
             country_name = country_info.split(" ", 1)[1] if " " in country_info else country_info
             flag = country_info.split(" ")[0] if " " in country_info else "🏳️"
-            
-            country_report = f"{flag} {country_name}: "
-            country_added = 0
-            
-            for ip_data in ip_list:
-                db.add_ipv4_address(country_name, flag, ip_data["ip"])
-                country_added += 1
-                added_count += 1
-            
-            country_reports.append(f"{country_report}{country_added} آدرس")
+            country_previews.append(f"• {flag} {country_name}: {len(ip_list)} آدرس")
         
-        # ارسال گزارش نهایی
-        report = f"✅ عملیات پردازش گروهی به پایان رسید.\n\n" \
-                f"📊 گزارش:\n" \
-                f"• تعداد کل IP‌های شناسایی شده: {total_ips}\n" \
-                f"• تعداد IP‌های اضافه شده: {added_count}\n" \
-                f"• تعداد کشورها: {len(ip_groups)}\n\n" \
-                f"🌐 دسته‌بندی بر اساس کشور:\n" + "\n".join(f"• {report}" for report in country_reports)
+        preview += "📋 پیش‌نمایش:\n" + "\n".join(country_previews[:10])
         
-        status_message.edit_text(report)
+        if len(country_previews) > 10:
+            preview += f"\n... و {len(country_previews) - 10} کشور دیگر"
         
-        # ارسال دکمه بازگشت به پنل ادمین
-        buttons = [[InlineKeyboardButton("↩️ بازگشت به پنل ادمین", callback_data='admin_panel')]]
-        update.message.reply_text("عملیات به پایان رسید.", reply_markup=InlineKeyboardMarkup(buttons))
+        # دکمه‌های تأیید یا لغو عملیات
+        buttons = [
+            [InlineKeyboardButton("✅ تایید و اضافه کردن", callback_data='confirm_add_batch_ips')],
+            [InlineKeyboardButton("✅ تایید و اطلاع‌رسانی به کاربران", callback_data='confirm_add_batch_ips_notify')],
+            [InlineKeyboardButton("❌ لغو عملیات", callback_data='cancel_add_batch_ips')]
+        ]
         
+        status_message.edit_text(preview, reply_markup=InlineKeyboardMarkup(buttons))
+        
+        return ENTER_BATCH_IPS
+
     except Exception as e:
         logger.error(f"خطا در پردازش گروهی IP: {e}")
         status_message.edit_text(f"❌ خطایی رخ داد: {str(e)}")
+        return ConversationHandler.END
+
+def cb_confirm_add_batch_ips(update: Update, context: CallbackContext) -> int:
+    """تأیید و اضافه کردن IPهای پردازش شده"""
+    return complete_batch_ip_process(update, context, notify_users=False)
+
+def cb_confirm_add_batch_ips_notify(update: Update, context: CallbackContext) -> int:
+    """تأیید و اضافه کردن IPهای پردازش شده با اطلاع‌رسانی"""
+    return complete_batch_ip_process(update, context, notify_users=True)
+
+def cb_cancel_add_batch_ips(update: Update, context: CallbackContext) -> int:
+    """لغو عملیات اضافه کردن IPهای پردازش شده"""
+    update.callback_query.answer("عملیات اضافه کردن IPها لغو شد.")
+    update.callback_query.message.edit_text("❌ عملیات اضافه کردن IPها لغو شد.")
+    
+    # پاکسازی داده‌های موقت
+    if 'ip_groups' in context.user_data:
+        del context.user_data['ip_groups']
+    if 'total_ips' in context.user_data:
+        del context.user_data['total_ips']
+    
+    # برگشت به پنل ادمین
+    buttons = [[InlineKeyboardButton("↩️ بازگشت به پنل ادمین", callback_data='admin_panel')]]
+    update.callback_query.message.reply_text("عملیات لغو شد.", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    return ConversationHandler.END
+
+def complete_batch_ip_process(update: Update, context: CallbackContext, notify_users: bool) -> int:
+    """تکمیل فرآیند اضافه کردن IPها با یا بدون اطلاع‌رسانی"""
+    update.callback_query.answer("در حال اضافه کردن IPها...")
+    
+    if 'ip_groups' not in context.user_data or 'total_ips' not in context.user_data:
+        update.callback_query.message.edit_text("❌ اطلاعات پردازش شده یافت نشد.")
+        return ConversationHandler.END
+    
+    ip_groups = context.user_data['ip_groups']
+    total_ips = context.user_data['total_ips']
+    
+    # اضافه کردن آدرس‌ها به دیتابیس و تولید گزارش
+    added_count = 0
+    country_reports = []
+
+    for country_info, ip_list in ip_groups.items():
+        country_name = country_info.split(" ", 1)[1] if " " in country_info else country_info
+        flag = country_info.split(" ")[0] if " " in country_info else "🏳️"
+
+        country_report = f"{flag} {country_name}: "
+        country_added = 0
+
+        for ip_data in ip_list:
+            db.add_ipv4_address(country_name, flag, ip_data["ip"])
+            country_added += 1
+            added_count += 1
+
+        country_reports.append(f"{country_report}{country_added} آدرس")
+    
+    # ارسال گزارش نهایی
+    report = f"✅ عملیات اضافه کردن IPها با موفقیت انجام شد.\n\n" \
+             f"📊 گزارش:\n" \
+             f"• تعداد کل IP‌های شناسایی شده: {total_ips}\n" \
+             f"• تعداد IP‌های اضافه شده: {added_count}\n" \
+             f"• تعداد کشورها: {len(ip_groups)}\n\n" \
+             f"🌐 دسته‌بندی بر اساس کشور:\n"
+    
+    # نمایش همه کشورها بدون محدودیت
+    for i, report_item in enumerate(country_reports):
+        report += f"• {report_item}\n"
+        # برای جلوگیری از پیام خیلی طولانی، هر 30 کشور یک پیام جدید ارسال می‌کنیم
+        if (i + 1) % 30 == 0 and i + 1 < len(country_reports):
+            update.callback_query.message.edit_text(report)
+            report = "⬇️ ادامه لیست کشورها:\n\n"
+    
+    update.callback_query.message.edit_text(report)
+    
+    # اطلاع‌رسانی به کاربران در صورت درخواست
+    if notify_users:
+        # متن اطلاع‌رسانی
+        notification = "🔥 آدرس‌های جدید اضافه شدند! 🔥\n\n"
+        notification += "📡 کشورهای جدید:\n"
+        
+        # تقسیم اطلاع‌رسانی به چند پیام اگر تعداد کشورها زیاد باشد
+        for i in range(0, len(country_reports), 20):
+            chunk = country_reports[i:i+20]
+            chunk_notification = notification + "\n".join(f"• {report}" for report in chunk)
+            
+            if i + 20 < len(country_reports):
+                chunk_notification += f"\n\n(بخش {i//20 + 1}/{(len(country_reports)+19)//20})"
+            
+            chunk_notification += "\n\nبرای مشاهده لیست کامل به بخش «📋 لیست IPv4» مراجعه کنید."
+            
+            # ارسال هر بخش به تمام کاربران فعال
+            success_count = 0
+            fail_count = 0
+            for user_id in db.active_users:
+                if db.is_user_active(user_id):
+                    try:
+                        context.bot.send_message(chat_id=user_id, text=chunk_notification)
+                        success_count += 1
+                    except Exception as e:
+                        logger.error(f"خطا در ارسال اطلاع‌رسانی به کاربر {user_id}: {e}")
+                        fail_count += 1
+            
+            # گزارش نتیجه اطلاع‌رسانی برای هر بخش
+            if i == 0:  # فقط برای بخش اول گزارش می‌دهیم
+                update.callback_query.message.reply_text(
+                    f"📢 اطلاع‌رسانی به کاربران:\n"
+                    f"✅ موفق: {success_count}\n"
+                    f"❌ ناموفق: {fail_count}"
+                )
+    
+    # پاکسازی داده‌های موقت
+    del context.user_data['ip_groups']
+    del context.user_data['total_ips']
+    
+    # برگشت به پنل ادمین
+    buttons = [[InlineKeyboardButton("↩️ بازگشت به پنل ادمین", callback_data='admin_panel')]]
+    update.callback_query.message.reply_text("عملیات با موفقیت انجام شد.", reply_markup=InlineKeyboardMarkup(buttons))
     
     return ConversationHandler.END
 
 
 def cb_admin_manage_backups(update: Update, context: CallbackContext) -> None:
     """مدیریت بکاپ‌های دیتابیس."""
+    import time
     backups = backup_mgr.list_backups()
-    
+
     if not backups:
         buttons = [
             [InlineKeyboardButton("💾 ایجاد بکاپ جدید", callback_data='create_backup')],
@@ -2015,30 +2977,31 @@ def cb_admin_manage_backups(update: Update, context: CallbackContext) -> None:
                   "هیچ بکاپی یافت نشد. می‌توانید اولین بکاپ را ایجاد کنید.",
                   reply_markup=InlineKeyboardMarkup(buttons))
         return
-    
+
     # تنظیم وضعیت بکاپ خودکار
     auto_backup_status = "✅ فعال" if backup_mgr.running else "❌ غیرفعال"
     auto_backup_action = "disable_auto_backup" if backup_mgr.running else "enable_auto_backup"
-    
+
     backup_list = "💾 لیست بکاپ‌های موجود:\n\n"
-    
+
     for i, (timestamp, path) in enumerate(backups[:5], 1):  # نمایش 5 بکاپ آخر
         # تبدیل timestamp به تاریخ خوانا
         date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
         backup_name = os.path.basename(path)
         backup_list += f"{i}. {date_str} - {backup_name}\n"
-    
+
     if len(backups) > 5:
         backup_list += f"\n... و {len(backups) - 5} بکاپ دیگر"
-    
+
     buttons = [
         [InlineKeyboardButton("💾 ایجاد بکاپ جدید", callback_data='create_backup')],
+        [InlineKeyboardButton("📤 ارسال آخرین بکاپ به ادمین", callback_data='send_latest_backup')],
         [InlineKeyboardButton("🔄 بازیابی آخرین بکاپ", callback_data='restore_last_backup')],
         [InlineKeyboardButton(f"⏱️ بکاپ خودکار: {auto_backup_status}", 
                              callback_data=auto_backup_action)],
         [InlineKeyboardButton("↩️ بازگشت", callback_data='admin_panel')]
     ]
-    
+
     send_reply(update, 
               f"💾 مدیریت بکاپ‌ها\n\n"
               f"تنظیمات فعلی:\n"
@@ -2048,11 +3011,28 @@ def cb_admin_manage_backups(update: Update, context: CallbackContext) -> None:
               f"{backup_list}",
               reply_markup=InlineKeyboardMarkup(buttons))
 
+# --- ارسال آخرین بکاپ به ادمین ---
+def cb_send_latest_backup(update: Update, context: CallbackContext) -> None:
+    """ارسال آخرین فایل بکاپ به ادمین به صورت فایل."""
+    backups = backup_mgr.list_backups()
+    if not backups:
+        update.callback_query.answer("هیچ بکاپی وجود ندارد.")
+        return
+    latest_backup_path = backups[0][1]
+    try:
+        with open(latest_backup_path, 'rb') as f:
+            update.callback_query.message.reply_document(
+                document=f,
+                filename=os.path.basename(latest_backup_path),
+                caption="📤 آخرین بکاپ دیتابیس برای شما ارسال شد."
+            )
+    except Exception as e:
+        update.callback_query.message.reply_text(f"❌ خطا در ارسال بکاپ: {str(e)}")
 
 def cb_create_backup(update: Update, context: CallbackContext) -> None:
     """ایجاد بکاپ دستی از دیتابیس."""
     update.callback_query.answer("در حال ایجاد بکاپ...")
-    
+
     try:
         backup_file = backup_mgr.create_backup()
         if backup_file:
@@ -2061,7 +3041,7 @@ def cb_create_backup(update: Update, context: CallbackContext) -> None:
             update.callback_query.message.reply_text("❌ خطا در ایجاد بکاپ: فایل دیتابیس یافت نشد.")
     except Exception as e:
         update.callback_query.message.reply_text(f"❌ خطا در ایجاد بکاپ: {str(e)}")
-    
+
     # بازگشت به صفحه مدیریت بکاپ‌ها
     cb_admin_manage_backups(update, context)
 
@@ -2069,7 +3049,7 @@ def cb_create_backup(update: Update, context: CallbackContext) -> None:
 def cb_restore_last_backup(update: Update, context: CallbackContext) -> None:
     """بازیابی آخرین بکاپ دیتابیس."""
     update.callback_query.answer("در حال بازیابی آخرین بکاپ...")
-    
+
     try:
         result = backup_mgr.restore_backup()
         if result:
@@ -2078,7 +3058,7 @@ def cb_restore_last_backup(update: Update, context: CallbackContext) -> None:
             update.callback_query.message.reply_text("❌ خطا در بازیابی: بکاپی یافت نشد.")
     except Exception as e:
         update.callback_query.message.reply_text(f"❌ خطا در بازیابی بکاپ: {str(e)}")
-    
+
     # بازگشت به صفحه مدیریت بکاپ‌ها
     cb_admin_manage_backups(update, context)
 
@@ -2086,14 +3066,14 @@ def cb_restore_last_backup(update: Update, context: CallbackContext) -> None:
 def cb_toggle_auto_backup(update: Update, context: CallbackContext) -> None:
     """فعال/غیرفعال کردن بکاپ خودکار."""
     action = update.callback_query.data
-    
+
     if action == 'enable_auto_backup':
         backup_mgr.start_backup_thread()
         update.callback_query.answer("بکاپ خودکار فعال شد.")
     else:
         backup_mgr.stop_backup_thread()
         update.callback_query.answer("بکاپ خودکار غیرفعال شد.")
-    
+
     # بازگشت به صفحه مدیریت بکاپ‌ها
     cb_admin_manage_backups(update, context)
 
@@ -2311,6 +3291,93 @@ def cb_admin_disable_user(update: Update, context: CallbackContext) -> int:
 def cb_admin_enable_user(update: Update, context: CallbackContext) -> int:
     """شروع فرآیند فعال کردن کاربر."""
     send_reply(update, "لطفاً آیدی عددی کاربر را وارد کنید:")
+
+def cb_admin_view_codes(update: Update, context: CallbackContext) -> None:
+    """نمایش کدهای فعال‌سازی موجود در سیستم"""
+    codes = db.get_all_codes()
+    
+    if not codes:
+        send_reply(update, "❌ هیچ کد فعال‌سازی یافت نشد.")
+        return
+    
+    # دسته‌بندی کدها
+    unlimited_codes = []
+    token_codes = []
+    
+    for code, data in codes.items():
+        if data['type'] == 'unlimited':
+            unlimited_codes.append(f"🔑 {code}")
+        else:
+            token_codes.append(f"🪙 {code} ({data['tokens']} توکن)")
+    
+    # ساخت متن پاسخ
+    response = "📋 لیست کدهای فعال‌سازی:\n\n"
+    
+    if unlimited_codes:
+        response += "🔄 کدهای دائمی:\n"
+        response += "\n".join(unlimited_codes) + "\n\n"
+    
+    if token_codes:
+        response += "🔢 کدهای توکنی:\n"
+        response += "\n".join(token_codes)
+    
+
+def cb_admin_batch_add_endpoints(update: Update, context: CallbackContext) -> int:
+    """افزودن گروهی Endpoint های وایرگارد"""
+    send_reply(update, 
+              "📥 لطفاً لیست Endpoint های وایرگارد را وارد کنید.\n\n"
+              "هر Endpoint را در یک خط بنویسید. مثال:\n"
+              "162.159.192.1\n"
+              "162.159.193.10\n"
+              "162.159.195.82\n\n"
+              "پورت را نیازی نیست وارد کنید، فقط آدرس IP ها را وارد کنید.")
+    return ENTER_BATCH_ENDPOINTS
+
+def handle_batch_endpoints(update: Update, context: CallbackContext) -> int:
+    """پردازش لیست Endpoint های دریافتی و افزودن آنها"""
+    import re
+    text = update.message.text.strip()
+    lines = text.split('\n')
+    
+    status_message = update.message.reply_text("🔄 در حال پردازش Endpoint ها...")
+    
+    # فیلتر کردن خطوط خالی و استخراج آدرس‌های IP
+    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+    added_endpoints = 0
+    invalid_lines = 0
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        match = re.search(ip_pattern, line)
+        if match:
+            endpoint = match.group(0)
+            if endpoint not in db.wg_endpoints:
+                db.add_endpoint(endpoint)
+                added_endpoints += 1
+        else:
+            invalid_lines += 1
+    
+    # به‌روزرسانی پیام با نتیجه
+    status_message.edit_text(
+        f"✅ عملیات افزودن Endpoint ها به پایان رسید.\n\n"
+        f"• تعداد Endpoint های افزوده شده: {added_endpoints}\n"
+        f"• تعداد خطوط نامعتبر: {invalid_lines}"
+    )
+    
+    # بازگشت به پنل مدیریت Endpoint ها
+    buttons = [[InlineKeyboardButton("↩️ بازگشت", callback_data='admin_manage_wg_endpoints')]]
+    update.message.reply_text("عملیات به پایان رسید.", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    return ConversationHandler.END
+
+    # افزودن دکمه برگشت
+    buttons = [[InlineKeyboardButton("↩️ بازگشت", callback_data='admin_panel')]]
+    
+    send_reply(update, response, reply_markup=InlineKeyboardMarkup(buttons))
+
     return ENTER_NEW_CODE
 
 
@@ -2501,7 +3568,7 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
             # بررسی اگر کشور در لیست پرچم‌های خاص موجود است
             if country_code in special_flags:
                 flag = special_flags[country_code]
-                logger.info(f"استفاده از پرچم آماده برای {country}: {flag}")
+                logger.info(f"Using prepared flag for {country}: {flag}")
             elif country_code and len(country_code) == 2:
                 # ساخت ایموجی پرچم از کد کشور
                 try:
@@ -2513,7 +3580,7 @@ def validate_ipv4_address(update: Update, context: CallbackContext) -> int:
                     if len(flag_chars) == 2:
                         flag = "".join(flag_chars)
                         logger.info(
-                            f"تولید پرچم برای {country}: {flag} از کد {country_code}"
+                            f"Generated flag for {country}: {flag} from code {country_code}"
                         )
                 except Exception as e:
                     logger.error(f"خطا در تولید پرچم: {e}")
@@ -2682,6 +3749,282 @@ def cb_add_validated_ip(update: Update, context: CallbackContext) -> None:
             send_reply(update, "❌ خطا در دریافت اطلاعات کشور.")
     except Exception as e:
         send_reply(update, f"❌ خطایی رخ داد: {str(e)}")
+
+
+# --- قابلیت‌های جدید ---
+# حافظه آخرین IPهای افزوده شده
+LAST_ADDED_IPS = deque(maxlen=20)
+
+# --- هندلر جستجوی سریع ---
+def cb_quick_search(update: Update, context: CallbackContext) -> None:
+    send_reply(update, "🔍 لطفاً نام کشور یا بخشی از IP را وارد کنید:")
+    context.user_data['search_mode'] = True
+
+def handle_search_input(update: Update, context: CallbackContext) -> None:
+    if context.user_data.get('search_mode'):
+        query = update.message.text.strip().lower()
+        results = []
+        for country_code, (country, flag, ips) in db.get_ipv4_countries().items():
+            if query in country.lower() or query in country_code.lower():
+                results.append(f"{flag} {country}: {len(ips)} IP")
+            else:
+                for ip in ips:
+                    if query in ip:
+                        results.append(f"{flag} {country}: {ip}")
+        if results:
+            send_reply(update, "نتایج جستجو:\n" + "\n".join(results))
+        else:
+            send_reply(update, "نتیجه‌ای یافت نشد.")
+        context.user_data['search_mode'] = False
+
+# --- هندلر آخرین IPها ---
+def cb_latest_ips(update: Update, context: CallbackContext) -> None:
+    if not LAST_ADDED_IPS:
+        send_reply(update, "هیچ IP جدیدی ثبت نشده است.")
+        return
+    text = "🆕 آخرین IPهای افزوده شده:\n" + "\n".join(LAST_ADDED_IPS)
+    send_reply(update, text)
+
+# --- افزودن به حافظه آخرین IPها هنگام افزودن ---
+# در enter_new_ipv4 و process_ipv4_entry و هر جای دیگر که IP اضافه می‌شود:
+# LAST_ADDED_IPS.appendleft(f"{flag} {country_name}: {ipv4}")
+
+# --- دسته‌بندی بر اساس قاره ---
+def cb_continent_list(update: Update, context: CallbackContext) -> None:
+    # نمایش لیست قاره‌ها
+    buttons = [[InlineKeyboardButton(name, callback_data=f'continent_{code}')]
+               for code, name in CONTINENT_MAP.items()]
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='back')])
+    send_reply(update, "🌎 یک قاره را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_show_countries_by_continent(update: Update, context: CallbackContext) -> None:
+    code = update.callback_query.data.split('_')[1]
+    countries = [k for k, v in COUNTRY_TO_CONTINENT.items() if v == code]
+    if not countries:
+        send_reply(update, "کشوری برای این قاره ثبت نشده است.")
+        return
+    buttons = []
+    for country_code in countries:
+        country = db.get_ipv4_countries().get(country_code)
+        if country:
+            flag, name, ips = country[1], country[0], country[2]
+            buttons.append([InlineKeyboardButton(f"{flag} {name} ({len(ips)})", callback_data=f"country_{country_code}")])
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='continent_list')])
+    send_reply(update, "🌍 انتخاب کشور:", reply_markup=InlineKeyboardMarkup(buttons))
+
+# --- ادمین: ارسال پیام همگانی ---
+def cb_admin_broadcast(update: Update, context: CallbackContext) -> None:
+    send_reply(update, "📢 لطفاً پیام خود را وارد کنید:")
+    context.user_data['broadcast_mode'] = True
+
+def handle_broadcast_input(update: Update, context: CallbackContext) -> None:
+    if context.user_data.get('broadcast_mode'):
+        msg = update.message.text.strip()
+        count = 0
+        for user_id in db.active_users:
+            try:
+                update.bot.send_message(chat_id=user_id, text=msg)
+                count += 1
+            except Exception:
+                pass
+        send_reply(update, f"📢 پیام به {count} کاربر ارسال شد.")
+        context.user_data['broadcast_mode'] = False
+
+# --- ادمین: خروجی CSV ---
+def cb_export_ips(update: Update, context: CallbackContext) -> None:
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Country", "Flag", "IP"])
+    for country_code, (country, flag, ips) in db.get_ipv4_countries().items():
+        for ip in ips:
+            writer.writerow([country, flag, ip])
+    output.seek(0)
+    update.effective_message.reply_document(document=io.BytesIO(output.read().encode()), filename="ipv4_list.csv")
+
+# --- ثبت هندلرها در main() ---
+# اضافه کردن CallbackQueryHandler(cb_quick_search, pattern='^quick_search$')
+# اضافه کردن CallbackQueryHandler(cb_latest_ips, pattern='^latest_ips$')
+# اضافه کردن CallbackQueryHandler(cb_continent_list, pattern='^continent_list$')
+# اضافه کردن CallbackQueryHandler(cb_show_countries_by_continent, pattern='^continent_')
+# اضافه کردن CallbackQueryHandler(cb_admin_broadcast, pattern='^admin_broadcast$')
+# اضافه کردن CallbackQueryHandler(cb_export_ips, pattern='^export_ips$')
+# اضافه کردن MessageHandler(Filters.text & ~Filters.command, handle_search_input) (در حالت search_mode)
+# اضافه کردن MessageHandler(Filters.text & ~Filters.command, handle_broadcast_input) (در حالت broadcast_mode)
+
+# --- Wireguard Endpoints Admin Panel ---
+WG_ENDPOINTS_MENU, WG_ADD_ENDPOINT, WG_REMOVE_ENDPOINT = range(20, 23)
+
+def cb_admin_manage_wg_endpoints(update: Update, context: CallbackContext) -> int:
+    endpoints = db.get_endpoints()
+    text = "🌐 لیست Endpointهای فعلی:\n" + ("\n".join(endpoints) if endpoints else "هیچ موردی ثبت نشده است.")
+    buttons = [[InlineKeyboardButton("➕ افزودن Endpoint", callback_data='add_wg_endpoint')]]
+    if endpoints:
+        for ep in endpoints:
+            buttons.append([InlineKeyboardButton(f"❌ حذف {ep}", callback_data=f'remove_wg_endpoint_{ep}')])
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='admin_panel')])
+    send_reply(update, text, reply_markup=InlineKeyboardMarkup(buttons))
+    return WG_ENDPOINTS_MENU
+
+def cb_add_wg_endpoint(update: Update, context: CallbackContext) -> int:
+    send_reply(update, "لطفاً آدرس Endpoint جدید را وارد کنید:")
+    return WG_ADD_ENDPOINT
+
+def enter_wg_endpoint(update: Update, context: CallbackContext) -> int:
+    endpoint = update.message.text.strip()
+    db.add_endpoint(endpoint)
+    send_reply(update, f"✅ Endpoint افزوده شد: {endpoint}")
+    return cb_admin_manage_wg_endpoints(update, context)
+
+def cb_remove_wg_endpoint(update: Update, context: CallbackContext) -> int:
+    endpoint = update.callback_query.data.replace('remove_wg_endpoint_', '')
+    db.remove_endpoint(endpoint)
+    send_reply(update, f"❌ Endpoint حذف شد: {endpoint}")
+    return cb_admin_manage_wg_endpoints(update, context)
+
+# --- Wireguard User Flow ---
+from telegram.ext import ConversationHandler
+WG_SELECT_ADDRESS, WG_SELECT_PORT, WG_CONFIRM = range(30, 33)
+
+@require_subscription
+def cb_wireguard(update: Update, context: CallbackContext) -> int:
+    # مرحله انتخاب آدرس
+    addresses = ["10.10.0.2/32", "10.66.66.2/32", "192.168.100.2/32"]
+    buttons = [[InlineKeyboardButton(addr, callback_data=f'wg_addr_{addr}')]
+               for addr in addresses]
+    buttons.append([InlineKeyboardButton("لغو", callback_data='back')])
+    send_reply(update, "آدرس مورد نظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+    return WG_SELECT_ADDRESS
+
+def cb_wg_select_address(update: Update, context: CallbackContext) -> int:
+    addr = update.callback_query.data.replace('wg_addr_', '')
+    context.user_data['wg_address'] = addr
+    # مرحله انتخاب پورت
+    ports = [53, 80, 443, 8080, 51820, 1195]
+    buttons = [[InlineKeyboardButton(str(p), callback_data=f'wg_port_{p}') for p in ports[:3]],
+               [InlineKeyboardButton(str(p), callback_data=f'wg_port_{p}') for p in ports[3:]]]
+    buttons.append([InlineKeyboardButton("لغو", callback_data='back')])
+    send_reply(update, "پورت مورد نظر را انتخاب کنید یا عدد دلخواه را ارسال کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+    return WG_SELECT_PORT
+
+def cb_wg_select_port(update: Update, context: CallbackContext) -> int:
+    port = int(update.callback_query.data.replace('wg_port_', ''))
+    context.user_data['wg_port'] = port
+    return wg_generate_config(update, context)
+
+def enter_wg_port(update: Update, context: CallbackContext) -> int:
+    try:
+        port = int(update.message.text.strip())
+        context.user_data['wg_port'] = port
+        return wg_generate_config(update, context)
+    except Exception:
+        send_reply(update, "پورت معتبر وارد کنید!")
+        return WG_SELECT_PORT
+
+def wg_generate_config(update: Update, context: CallbackContext) -> int:
+    # انتخاب endpoint رندوم
+    endpoints = db.get_endpoints()
+    if not endpoints:
+        send_reply(update, "❌ هیچ Endpointی توسط ادمین ثبت نشده است.")
+        return ConversationHandler.END
+    import random
+    endpoint = random.choice(endpoints)
+    # تشخیص کشور endpoint
+    try:
+        import requests
+        country = requests.get(f'https://api.iplocation.net/?ip={endpoint.split(":")[0]}').json().get('country_name', 'نامشخص')
+    except Exception:
+        country = 'نامشخص'
+    # انتخاب MTU رندوم
+    mtu = random.choice([1360, 1380, 1440])
+    # DNS ثابت و یکی از endpointها
+    dns1 = "10.202.10.10"
+    dns2 = endpoint.split(":")[0]
+    # ساخت کانفیگ
+    from wg import WireguardConfig
+    wg = WireguardConfig()
+    private_key = wg.generate_private_key()
+    public_key = wg.generate_public_key()
+    address = context.user_data['wg_address']
+    port = context.user_data['wg_port']
+    config = f"""[Interface]\nPrivateKey = {private_key}\nAddress = {address}\nDNS = {dns1}, {dns2}\nMTU = {mtu}\n\n[Peer]\nPublicKey = {public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = {endpoint}:{port}\nPersistentKeepalive = 25\n"""
+    caption = f"✨ کانفیگ وایرگارد اختصاصی شما آماده است!\n\n🌍 کشور سرور: {country}\n🌐 Endpoint: {endpoint}\n🔢 پورت: {port}\n🟢 آدرس: {address}\n🔑 MTU: {mtu}\n🟦 DNS: {dns1}, {dns2}\n\nبرای اتصال کافیست این کانفیگ را در برنامه WireGuard وارد کنید.\nدر صورت مشکل با پشتیبانی تماس بگیرید."
+    send_reply(update, f"<b>{caption}</b>\n\n<pre>{config}</pre>", parse_mode='HTML')
+    return ConversationHandler.END
+
+# --- ثبت در main() ---
+# اضافه کردن CallbackQueryHandler(cb_admin_manage_wg_endpoints, pattern='^admin_manage_wg_endpoints$')
+# اضافه کردن CallbackQueryHandler(cb_add_wg_endpoint, pattern='^add_wg_endpoint$')
+# اضافه کردن CallbackQueryHandler(cb_remove_wg_endpoint, pattern='^remove_wg_endpoint_')
+# اضافه کردن MessageHandler(Filters.text & ~Filters.command, enter_wg_endpoint) (در حالت WG_ADD_ENDPOINT)
+# اضافه کردن ConversationHandler برای وایرگارد با مراحل WG_SELECT_ADDRESS, WG_SELECT_PORT, WG_CONFIRM
+
+# --- زیرمنوی لیست IPv4 ---
+def cb_ipv4_menu(update: Update, context: CallbackContext) -> None:
+    buttons = [
+        [InlineKeyboardButton("📋 مشاهده لیست کشورها", callback_data='get_ipv4')],
+        [InlineKeyboardButton("🔍 جستجوی سریع کشور/IP", callback_data='quick_search_ipv4')],
+        [InlineKeyboardButton("🌎 دسته‌بندی بر اساس قاره", callback_data='continent_list_ipv4')],
+        [InlineKeyboardButton("🆕 آخرین IPهای افزوده شده", callback_data='latest_ips_ipv4')],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data='back')]
+    ]
+    send_reply(update, "لطفاً یک گزینه انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+# --- اصلاح هندلرهای جستجو/قاره/آخرین IP برای زیرمنوی ipv4 ---
+def cb_quick_search_ipv4(update: Update, context: CallbackContext) -> None:
+    send_reply(update, "🔍 لطفاً نام کشور یا بخشی از IP را وارد کنید:")
+    context.user_data['search_mode_ipv4'] = True
+
+def handle_search_input_ipv4(update: Update, context: CallbackContext) -> None:
+    if context.user_data.get('search_mode_ipv4'):
+        query = update.message.text.strip().lower()
+        results = []
+        for country_code, (country, flag, ips) in db.get_ipv4_countries().items():
+            if query in country.lower() or query in country_code.lower():
+                results.append(f"{flag} {country}: {len(ips)} IP")
+            else:
+                for ip in ips:
+                    if query in ip:
+                        results.append(f"{flag} {country}: {ip}")
+        if results:
+            send_reply(update, "نتایج جستجو:\n" + "\n".join(results))
+        else:
+            send_reply(update, "نتیجه‌ای یافت نشد.")
+        context.user_data['search_mode_ipv4'] = False
+
+def cb_latest_ips_ipv4(update: Update, context: CallbackContext) -> None:
+    if not LAST_ADDED_IPS:
+        send_reply(update, "هیچ IP جدیدی ثبت نشده است.")
+        return
+    text = "🆕 آخرین IPهای افزوده شده:\n" + "\n".join(LAST_ADDED_IPS)
+    send_reply(update, text)
+
+CONTINENT_MAP = {
+    'AS': 'آسیا', 'EU': 'اروپا', 'AF': 'آفریقا', 'NA': 'آمریکای شمالی', 'SA': 'آمریکای جنوبی', 'OC': 'اقیانوسیه', 'AN': 'جنوبگان'
+}
+COUNTRY_TO_CONTINENT = {
+    # نمونه: 'IR': 'AS', 'SA': 'AS', ...
+}
+def cb_continent_list_ipv4(update: Update, context: CallbackContext) -> None:
+    buttons = [[InlineKeyboardButton(name, callback_data=f'continent_ipv4_{code}')]
+               for code, name in CONTINENT_MAP.items()]
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='ipv4_menu')])
+    send_reply(update, "🌎 یک قاره را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+def cb_show_countries_by_continent_ipv4(update: Update, context: CallbackContext) -> None:
+    code = update.callback_query.data.split('_')[2]
+    countries = [k for k, v in COUNTRY_TO_CONTINENT.items() if v == code]
+    if not countries:
+        send_reply(update, "کشوری برای این قاره ثبت نشده است.")
+        return
+    buttons = []
+    for country_code in countries:
+        country = db.get_ipv4_countries().get(country_code)
+        if country:
+            flag, name, ips = country[1], country[0], country[2]
+            buttons.append([InlineKeyboardButton(f"{flag} {name} ({len(ips)})", callback_data=f"country_{country_code}")])
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data='continent_list_ipv4')])
+    send_reply(update, "🌍 انتخاب کشور:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 if __name__ == '__main__':
