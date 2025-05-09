@@ -34,7 +34,7 @@ class DBManager:
                 self.disabled_locations = data.get('disabled_locations', {})
                 self.wg_endpoints = data.get('wg_endpoints', [])
                 self.last_added_ips = data.get('last_added_ips', deque(maxlen=20))
-                
+
                 # اضافه کردن فیلدهای جدید به کدهای فعالسازی موجود
                 for code in self.active_codes:
                     if 'used_count' not in self.active_codes[code]:
@@ -306,21 +306,21 @@ class DBManager:
     def add_ipv4_address(self, country_name: str, flag: str, ipv4: str) -> None:
         # استاندارد‌سازی نام‌ها و کدها بر اساس قوانین خاص
         country_name_lower = country_name.lower()
-        
+
         # تشخیص خاص عربستان
         if 'saudi' in country_name_lower or 'عربستان' in country_name_lower or 'سعودی' in country_name_lower:
             country_code = 'SA'
             standard_country_name = 'Saudi Arabia'
-            
+
             # استاندارد کردن نام عربستان به زبان انگلیسی
             if 'عربستان' in country_name or 'سعودی' in country_name:
                 country_name = 'Saudi Arabia'
-                
+
         else:
             # در سایر موارد، کد کشور را از نام استخراج می‌کنیم
             country_code = country_name.lower().replace(' ', '_')
             standard_country_name = country_name
-            
+
             # بررسی وجود کشور با نام مشابه
             existing_country = next((key for key in self.ipv4_data.keys() 
                                    if key.lower().replace(' ', '_') == country_code 
@@ -328,7 +328,7 @@ class DBManager:
             if existing_country:
                 country_code = existing_country
                 standard_country_name = self.ipv4_data[existing_country][0]  # استفاده از نام موجود
-        
+
         # Standardize Saudi Arabia country codes
         saudi_keys = ['sa', 'ksa', 'saudi', 'saudi_arabia', 'saudiarabia', 'kingdomofsaudiarabia', 'ksaudi', 'saudi arabia']
         for key in list(self.ipv4_data.keys()):
@@ -345,10 +345,10 @@ class DBManager:
                     del self.ipv4_data[key]
                 country_code = 'SA'
                 break
-                
+
         if country_code not in self.ipv4_data:
             self.ipv4_data[country_code] = (standard_country_name, flag, [])
-        
+
         name, flag_emoji, ips = self.ipv4_data[country_code]
         if ipv4 not in ips:
             ips.append(ipv4)
